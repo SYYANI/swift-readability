@@ -16,12 +16,14 @@ The redesigned CLI becomes an **Issue Capture & Ground Truth Calibration Pipelin
 
 ## 2. Prerequisites
 
-The `parse` command requires a JavaScript runtime to execute the reference Mozilla Readability.js implementation for side-by-side comparison. Either of the following is supported:
+The `parse` command requires **Node.js** (`node` on `$PATH`) to execute the reference Mozilla Readability.js implementation for side-by-side comparison.
 
-- **Deno** (preferred): `deno` must be on `$PATH`.
-- **Node.js** (fallback): `node` must be on `$PATH`.
+The bridge script (`CLI/scripts/mozilla-bridge.js`) uses CommonJS modules and `jsdom`, neither of which Deno supports out of the box. Node.js is the only supported runtime.
 
-The CLI detects whichever runtime is available at startup and reports a clear error if neither is found.
+First-time setup for the bridge script:
+```bash
+cd CLI/scripts && npm install
+```
 
 ---
 
@@ -81,7 +83,7 @@ The pipeline is composed of six atomic subcommands plus one diagnostic tool.
 - **Syntax**: `ReadabilityCLI parse <case-name>`
 - **Process**:
   1. **Swift side**: Invoke `Sources/Readability`, write `swift-out.html` and `swift-result.json` to staging.
-  2. **Mozilla side**: Invoke the JS bridge script at `CLI/scripts/mozilla-bridge.js` via `Process`, using the detected JS runtime (Deno preferred, Node.js fallback) and `ref/mozilla-readability`. Write `mozilla-out.html` and `mozilla-result.json` to staging. The bridge script accepts the path to `source.html` as input and emits JSON to stdout.
+  2. **Mozilla side**: Invoke the JS bridge script at `CLI/scripts/mozilla-bridge.js` via `Process`, using Node.js and `ref/mozilla-readability`. Write `mozilla-out.html` and `mozilla-result.json` to staging. The bridge script accepts the path to `source.html` as input and emits JSON to stdout.
 - **Output**: Four comparison files written to the staging directory.
 
 ### 5.3 `judge` — Ground Truth Draft Generation
@@ -162,7 +164,8 @@ The `expected-metadata.json` format matches the Mozilla test page schema exactly
 3. **Add `CLI/.staging/` to `.gitignore`**.
 4. **Implement `fetch`, `parse`, `commit`, `clean`**:
    - Write the Mozilla JS bridge script at `CLI/scripts/mozilla-bridge.js`.
-   - Implement JS runtime detection and subprocess invocation (Deno preferred, Node.js fallback) in the `parse` command.
+   - Run `npm install` in `CLI/scripts/` to install `jsdom`.
+   - Implement Node.js detection and subprocess invocation in the `parse` command.
 5. **Create `ExPagesCompatibilityTests.swift`** as an empty-but-compilable placeholder, to be filled case-by-case.
 
 From Phase 1 onward, `judge` and `review` remain **manual**: the developer opens staging files in their editor, edits `draft-expected.html` as needed, renames the final versions to `expected.*`, then calls `commit`.

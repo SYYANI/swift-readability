@@ -8,13 +8,15 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
-        .package(path: "..")
+        .package(path: ".."),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
     ],
     targets: [
         .executableTarget(
             name: "ReadabilityCLI",
             dependencies: [
-                .product(name: "Readability", package: "readability")
+                .product(name: "Readability", package: "readability"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         )
     ]

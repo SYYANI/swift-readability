@@ -33,19 +33,13 @@ public struct Readability {
         let sourceURL = detectSourceURL()
 
         // Match Mozilla: upgrade lazy/placeholder images from <noscript> first.
-        try PerfTrace.measure("unwrapNoscriptImages") {
-            try unwrapNoscriptImages()
-        }
+        try unwrapNoscriptImages()
 
         // Extract metadata BEFORE prepDocument() to preserve JSON-LD scripts
-        let metadata = try PerfTrace.measure("extractMetadata") {
-            try extractMetadata()
-        }
+        let metadata = try extractMetadata()
 
         // Prepare document (remove scripts, styles, etc.)
-        try PerfTrace.measure("prepDocument") {
-            try prepDocument()
-        }
+        try prepDocument()
 
         // Use metadata title if available, otherwise extract from document
         let title: String
@@ -57,17 +51,13 @@ public struct Readability {
 
         // Extract article content using new ContentExtractor
         let extractor = ContentExtractor(doc: doc, options: options, articleTitle: title, sourceURL: sourceURL)
-        let (articleContent, extractedByline, _, articleDir, articleLang) = try PerfTrace.measure("extractArticle") {
-            try extractor.extract()
-        }
+        let (articleContent, extractedByline, _, articleDir, articleLang) = try extractor.extract()
 
         // Post-process with ArticleCleaner
         let cleaner = ArticleCleaner(options: options)
-        try PerfTrace.measure("cleanArticle") {
-            try cleaner.prepArticle(articleContent)
-            try cleaner.postProcessArticle(articleContent)
-            try removeTitleMatchedHeaders(from: articleContent, title: title)
-        }
+        try cleaner.prepArticle(articleContent)
+        try cleaner.postProcessArticle(articleContent)
+        try removeTitleMatchedHeaders(from: articleContent, title: title)
 
         // Get text content
         let textContent = try articleContent.text()
@@ -92,9 +82,7 @@ public struct Readability {
         try articleContent.appendChild(pageWrapper)
 
         // Clean and serialize content
-        let content = try PerfTrace.measure("cleanAndSerialize") {
-            try cleanAndSerialize(articleContent)
-        }
+        let content = try cleanAndSerialize(articleContent)
 
         // Prefer metadata byline by default (Mozilla behavior), but avoid
         // low-quality metadata values when richer extracted byline exists.
@@ -113,13 +101,11 @@ public struct Readability {
         } else {
             byline = extractedByline
         }
-        let finalByline = try PerfTrace.measure("applyBylineRules") {
-            try SiteRuleRegistry.applyBylineRules(
-                byline,
-                sourceURL: sourceURL,
-                document: doc
-            )
-        }
+        let finalByline = try SiteRuleRegistry.applyBylineRules(
+            byline,
+            sourceURL: sourceURL,
+            document: doc
+        )
 
         return ReadabilityResult(
             title: title,
@@ -921,29 +907,15 @@ public struct Readability {
         // 1) fix relative links/media URLs
         // 2) simplify nested wrappers
         // 3) optionally strip classes
-        try PerfTrace.measure("serialize.fixRelativeURIs") {
-            try fixRelativeURIs(cleaned)
-        }
-        try PerfTrace.measure("serialize.simplifyNested") {
-            try simplifyNestedElements(cleaned)
-        }
-        try PerfTrace.measure("serialize.siteRules") {
-            try SiteRuleRegistry.applySerializationRules(to: cleaned)
-        }
-        try PerfTrace.measure("serialize.normalizeSplitPrintInfo") {
-            try normalizeSplitPrintInfoInSerializedTree(cleaned)
-        }
+        try fixRelativeURIs(cleaned)
+        try simplifyNestedElements(cleaned)
+        try SiteRuleRegistry.applySerializationRules(to: cleaned)
+        try normalizeSplitPrintInfoInSerializedTree(cleaned)
         if !options.keepClasses {
-            try PerfTrace.measure("serialize.cleanClasses") {
-                try cleanClasses(cleaned)
-            }
+            try cleanClasses(cleaned)
         }
-        try PerfTrace.measure("serialize.trimWhitespace") {
-            try trimParagraphBoundaryWhitespace(cleaned)
-        }
-        try PerfTrace.measure("serialize.restoreFigureAttrs") {
-            try restoreFigureWrapperMetadataAttributes(cleaned)
-        }
+        try trimParagraphBoundaryWhitespace(cleaned)
+        try restoreFigureWrapperMetadataAttributes(cleaned)
 
         doc.outputSettings().prettyPrint(pretty: false)
 

@@ -1,382 +1,384 @@
+// CLI/Sources/main.swift
+// ReadabilityCLI v2 - Issue Capture & Ground Truth Calibration Pipeline
+// See CLI/PLAN-v2.md for design rationale.
+
+import ArgumentParser
 import Foundation
 import Readability
 
-enum CLIError: Error {
-    case noInput
-    case invalidURL
-    case invalidHTML
-    case invalidArguments(String)
-    case benchmarkInputListRequired
-}
-
-extension CLIError: CustomStringConvertible {
-    var description: String {
-        switch self {
-        case .noInput:
-            return "No input provided. Use: readability-cli <url>, pipe HTML via stdin, or --benchmark."
-        case .invalidURL:
-            return "Invalid URL provided."
-        case .invalidHTML:
-            return "Could not decode HTML."
-        case .invalidArguments(let message):
-            return "Invalid arguments: \(message)"
-        case .benchmarkInputListRequired:
-            return "Benchmark mode requires --benchmark-input-list <path>."
-        }
-    }
-}
-
-struct CLIOptions {
-    var help = false
-    var asJSON = false
-    var textOnly = false
-    var benchmark = false
-    var benchmarkInputList: String?
-    var benchmarkOutput: String?
-    var benchmarkIterations = 5
-    var benchmarkWarmup = 1
-    var benchmarkHoldSeconds = 0
-    var positional: [String] = []
-}
-
-struct BenchmarkCaseResult: Codable {
-    let path: String
-    let iterations: Int
-    let warmup: Int
-    let runsMs: [Double]
-    let averageMs: Double
-    let p50Ms: Double
-    let p95Ms: Double
-    let minMs: Double
-    let maxMs: Double
-}
-
-struct BenchmarkReport: Codable {
-    let generatedAt: String
-    let swiftVersionHint: String
-    let iterations: Int
-    let warmup: Int
-    let totalCases: Int
-    let totalMeasuredRuns: Int
-    let overallP50Ms: Double
-    let overallP95Ms: Double
-    let overallAverageMs: Double
-    let throughputPagesPerSecond: Double
-    let cases: [BenchmarkCaseResult]
-}
-
-func fetchHTML(from urlString: String) async throws -> String {
-    guard let url = URL(string: urlString), url.scheme?.hasPrefix("http") == true else {
-        throw CLIError.invalidURL
-    }
-
-    let (data, _) = try await URLSession.shared.data(from: url)
-    guard let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
-        throw CLIError.invalidHTML
-    }
-    return html
-}
-
-func readStdin() -> String? {
-    var input = ""
-    while let line = readLine(strippingNewline: false) {
-        input += line
-    }
-    return input.isEmpty ? nil : input
-}
-
-func printUsage() {
-    print(
-        """
-        Readability CLI - Extract readable content from HTML
-
-        Usage:
-            readability-cli <url>                     # Fetch and parse URL
-            cat file.html | readability-cli           # Read from stdin
-            readability-cli < file.html               # Read from stdin
-            readability-cli --benchmark ...           # Run performance benchmark
-
-        Options:
-            --text-only                               Output plain text instead of HTML
-            --json                                    Output as JSON
-            --benchmark                               Run benchmark mode
-            --benchmark-input-list <path>             File containing HTML paths (one per line)
-            --benchmark-output <path>                 Benchmark JSON report output path
-            --benchmark-iterations <N>                Measured iterations per case (default: 5)
-            --benchmark-warmup <N>                    Warmup iterations per case (default: 1)
-            --benchmark-hold-seconds <N>              Keep process alive after benchmark (default: 0)
-            -h, --help                                Show this help message
-        """
-    )
-}
-
-func outputResult(_ result: ReadabilityResult, asJSON: Bool, textOnly: Bool) throws {
-    if asJSON {
-        let dict: [String: Any] = [
-            "title": result.title,
-            "content": result.content,
-            "textContent": result.textContent,
-            "excerpt": result.excerpt ?? NSNull(),
-            "length": result.length
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted)
-        if let jsonString = String(data: jsonData, encoding: .utf8) {
-            print(jsonString)
-        }
-        return
-    }
-
-    if textOnly {
-        print("Title: \(result.title)")
-        print("")
-        if let excerpt = result.excerpt {
-            print("Excerpt: \(excerpt)")
-            print("")
-        }
-        print(result.textContent)
-        return
-    }
-
-    print("<html>")
-    print("<head>")
-    print("<meta charset=\"UTF-8\">")
-    print("<title>\(result.title)</title>")
-    print("</head>")
-    print("<body>")
-    print(result.content)
-    print("</body>")
-    print("</html>")
-}
-
-func printError(_ message: String) {
-    if let data = (message + "\n").data(using: .utf8) {
-        FileHandle.standardError.write(data)
-    }
-}
-
-func parseOptions(_ args: [String]) throws -> CLIOptions {
-    var options = CLIOptions()
-    var index = 0
-
-    while index < args.count {
-        let arg = args[index]
-        switch arg {
-        case "-h", "--help":
-            options.help = true
-        case "--json":
-            options.asJSON = true
-        case "--text-only":
-            options.textOnly = true
-        case "--benchmark":
-            options.benchmark = true
-        case "--benchmark-input-list":
-            index += 1
-            guard index < args.count else {
-                throw CLIError.invalidArguments("missing value for --benchmark-input-list")
-            }
-            options.benchmarkInputList = args[index]
-        case "--benchmark-output":
-            index += 1
-            guard index < args.count else {
-                throw CLIError.invalidArguments("missing value for --benchmark-output")
-            }
-            options.benchmarkOutput = args[index]
-        case "--benchmark-iterations":
-            index += 1
-            guard index < args.count, let value = Int(args[index]), value > 0 else {
-                throw CLIError.invalidArguments("invalid value for --benchmark-iterations")
-            }
-            options.benchmarkIterations = value
-        case "--benchmark-warmup":
-            index += 1
-            guard index < args.count, let value = Int(args[index]), value >= 0 else {
-                throw CLIError.invalidArguments("invalid value for --benchmark-warmup")
-            }
-            options.benchmarkWarmup = value
-        case "--benchmark-hold-seconds":
-            index += 1
-            guard index < args.count, let value = Int(args[index]), value >= 0 else {
-                throw CLIError.invalidArguments("invalid value for --benchmark-hold-seconds")
-            }
-            options.benchmarkHoldSeconds = value
-        default:
-            if arg.hasPrefix("-") {
-                throw CLIError.invalidArguments("unknown option \(arg)")
-            }
-            options.positional.append(arg)
-        }
-        index += 1
-    }
-
-    return options
-}
-
-func percentile(_ values: [Double], p: Double) -> Double {
-    guard !values.isEmpty else { return 0 }
-    let sorted = values.sorted()
-    if sorted.count == 1 { return sorted[0] }
-    let rank = max(0, min(Double(sorted.count - 1), p * Double(sorted.count - 1)))
-    let lowerIndex = Int(rank.rounded(.down))
-    let upperIndex = Int(rank.rounded(.up))
-    if lowerIndex == upperIndex {
-        return sorted[lowerIndex]
-    }
-    let fraction = rank - Double(lowerIndex)
-    return sorted[lowerIndex] * (1.0 - fraction) + sorted[upperIndex] * fraction
-}
-
-func average(_ values: [Double]) -> Double {
-    guard !values.isEmpty else { return 0 }
-    return values.reduce(0, +) / Double(values.count)
-}
-
-func resolveCasePath(_ entry: String, baseDirectory: URL) -> URL {
-    if entry.hasPrefix("/") {
-        return URL(fileURLWithPath: entry)
-    }
-    return baseDirectory.appendingPathComponent(entry)
-}
-
-func loadBenchmarkInputList(path: String) throws -> [String] {
-    let content = try String(contentsOfFile: path, encoding: .utf8)
-    return content
-        .split(separator: "\n", omittingEmptySubsequences: false)
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-}
-
-func runBenchmark(_ options: CLIOptions) throws {
-    guard let listPath = options.benchmarkInputList else {
-        throw CLIError.benchmarkInputListRequired
-    }
-
-    let caseEntries = try loadBenchmarkInputList(path: listPath)
-    let listURL = URL(fileURLWithPath: listPath)
-    let listBaseDirectory = listURL.deletingLastPathComponent()
-    let baseURL = URL(string: "http://fakehost/test/index.html")
-    var caseResults: [BenchmarkCaseResult] = []
-    var allRunsMs: [Double] = []
-    let wallStart = DispatchTime.now().uptimeNanoseconds
-
-    for entry in caseEntries {
-        let caseURL = resolveCasePath(entry, baseDirectory: listBaseDirectory)
-        let html = try String(contentsOf: caseURL, encoding: .utf8)
-
-        for _ in 0..<options.benchmarkWarmup {
-            let readability = try Readability(html: html, baseURL: baseURL)
-            _ = try readability.parse()
-        }
-
-        var runsMs: [Double] = []
-        for _ in 0..<options.benchmarkIterations {
-            let start = DispatchTime.now().uptimeNanoseconds
-            let readability = try Readability(html: html, baseURL: baseURL)
-            _ = try readability.parse()
-            let elapsedNs = DispatchTime.now().uptimeNanoseconds - start
-            let elapsedMs = Double(elapsedNs) / 1_000_000.0
-            runsMs.append(elapsedMs)
-            allRunsMs.append(elapsedMs)
-        }
-
-        guard let minMs = runsMs.min(), let maxMs = runsMs.max() else { continue }
-        let caseResult = BenchmarkCaseResult(
-            path: entry,
-            iterations: options.benchmarkIterations,
-            warmup: options.benchmarkWarmup,
-            runsMs: runsMs,
-            averageMs: average(runsMs),
-            p50Ms: percentile(runsMs, p: 0.50),
-            p95Ms: percentile(runsMs, p: 0.95),
-            minMs: minMs,
-            maxMs: maxMs
-        )
-        caseResults.append(caseResult)
-        printError("bench case: \(entry) p50=\(String(format: "%.2f", caseResult.p50Ms))ms p95=\(String(format: "%.2f", caseResult.p95Ms))ms")
-    }
-
-    let wallElapsedNs = DispatchTime.now().uptimeNanoseconds - wallStart
-    let wallElapsedSeconds = Double(wallElapsedNs) / 1_000_000_000.0
-    let measuredRuns = caseResults.count * options.benchmarkIterations
-    let throughput = wallElapsedSeconds > 0 ? Double(measuredRuns) / wallElapsedSeconds : 0
-
-    let report = BenchmarkReport(
-        generatedAt: ISO8601DateFormatter().string(from: Date()),
-        swiftVersionHint: "swift-tools-version: 6.2",
-        iterations: options.benchmarkIterations,
-        warmup: options.benchmarkWarmup,
-        totalCases: caseResults.count,
-        totalMeasuredRuns: measuredRuns,
-        overallP50Ms: percentile(allRunsMs, p: 0.50),
-        overallP95Ms: percentile(allRunsMs, p: 0.95),
-        overallAverageMs: average(allRunsMs),
-        throughputPagesPerSecond: throughput,
-        cases: caseResults
-    )
-
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(report)
-
-    if let outputPath = options.benchmarkOutput {
-        let outputURL = URL(fileURLWithPath: outputPath)
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: outputURL)
-        printError("benchmark report written: \(outputPath)")
-    } else if let json = String(data: data, encoding: .utf8) {
-        print(json)
-    }
-
-    if options.benchmarkHoldSeconds > 0 {
-        printError("holding process for \(options.benchmarkHoldSeconds)s for profiler attach stability ...")
-        Thread.sleep(forTimeInterval: TimeInterval(options.benchmarkHoldSeconds))
-    }
-}
+// MARK: - Entry point
 
 @main
-struct ReadabilityCLI {
-    static func main() async {
+struct ReadabilityCLI: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Issue Capture & Ground Truth Calibration Pipeline.",
+        subcommands: [Fetch.self, Parse.self, Commit.self, Clean.self]
+    )
+}
+
+// MARK: - Helpers
+
+/// Write a diagnostic line to stderr.
+private func printErr(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
+/// Returns the `.staging/<caseName>/` URL relative to the current working directory.
+private func stagingCaseDir(for caseName: String) -> URL {
+    URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".staging")
+        .appendingPathComponent(caseName)
+}
+
+/// Returns the `.staging/` root URL relative to the current working directory.
+private func stagingRootDir() -> URL {
+    URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".staging")
+}
+
+/// Detect Node.js on $PATH. The bridge script requires Node.js (CJS + jsdom).
+/// Returns the executable path, or nil if not found.
+private func detectJSRuntime() -> (path: String, isDeno: Bool)? {
+    for (name, isDeno) in [("node", false)] {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        task.arguments = [name]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()
+        guard (try? task.run()) != nil else { continue }
+        task.waitUntilExit()
+        guard task.terminationStatus == 0 else { continue }
+        let raw = outPipe.fileHandleForReading.readDataToEndOfFile()
+        if let path = String(data: raw, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+            return (path, isDeno)
+        }
+    }
+    return nil
+}
+
+// MARK: - fetch
+
+struct Fetch: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Fetch HTML from a URL and create a new staging case."
+    )
+
+    @Argument(help: "The URL to fetch (http/https only).")
+    var url: String
+
+    @Option(name: .long, help: "Name for this case (alphanumeric, hyphens, underscores).")
+    var name: String
+
+    mutating func run() async throws {
+        let fm = FileManager.default
+
+        // URL security validation
+        guard let parsedURL = URL(string: url),
+              let scheme = parsedURL.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            throw ValidationError("URL must use http or https scheme.")
+        }
+        guard let host = parsedURL.host?.lowercased(), !host.isEmpty else {
+            throw ValidationError("URL has no valid host.")
+        }
+        let blockedExact: Set<String> = ["localhost", "::1", "[::1]", "0.0.0.0"]
+        if blockedExact.contains(host) {
+            throw ValidationError("URL host '\(host)' is a reserved address.")
+        }
+        let blockedPrefixes = [
+            "127.", "10.", "192.168.", "169.254.",
+            "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
+            "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
+            "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
+            "[fc", "[fd", "[fe8"
+        ]
+        for prefix in blockedPrefixes where host.hasPrefix(prefix) {
+            throw ValidationError("URL resolves to a private or reserved address (\(host)).")
+        }
+
+        // Case name validation — prevent path traversal
+        let validChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard !name.isEmpty,
+              name.unicodeScalars.allSatisfy({ validChars.contains($0) }),
+              !name.hasPrefix(".") else {
+            throw ValidationError("Case name must be non-empty and contain only alphanumerics, hyphens, or underscores.")
+        }
+
+        let dest = stagingCaseDir(for: name)
+        guard !fm.fileExists(atPath: dest.path) else {
+            throw ValidationError("Case '\(name)' already exists in .staging/. Run 'clean \(name)' to remove it first.")
+        }
+        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+        printErr("Fetching \(url) ...")
+        var request = URLRequest(url: parsedURL)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (compatible; ReadabilityCLI/2.0)", forHTTPHeaderField: "User-Agent")
+
         do {
-            let rawArgs = Array(CommandLine.arguments.dropFirst())
-            let options = try parseOptions(rawArgs)
-
-            if options.help {
-                printUsage()
-                return
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                try? fm.removeItem(at: dest)
+                throw ValidationError("HTTP \(http.statusCode) from server.")
             }
+            try data.write(to: dest.appendingPathComponent("source.html"))
 
-            if options.benchmark {
-                try runBenchmark(options)
-                return
-            }
+            let meta: [String: String] = [
+                "url": url,
+                "fetchedAt": ISO8601DateFormatter().string(from: Date())
+            ]
+            let metaData = try JSONSerialization.data(withJSONObject: meta, options: .prettyPrinted)
+            try metaData.write(to: dest.appendingPathComponent("meta.json"))
 
-            let html: String
-            let baseURL: URL?
-
-            if let urlString = options.positional.first {
-                printError("Fetching: \(urlString)...")
-                html = try await fetchHTML(from: urlString)
-                baseURL = URL(string: urlString)
-                printError("Parsing content...")
-            } else {
-                guard let stdinHTML = readStdin() else {
-                    throw CLIError.noInput
-                }
-                html = stdinHTML
-                baseURL = nil
-            }
-
-            let readability = try Readability(html: html, baseURL: baseURL)
-            let result = try readability.parse()
-            try outputResult(result, asJSON: options.asJSON, textOnly: options.textOnly)
+            print("Staged '\(name)':")
+            print("  source.html  (\(data.count) bytes)")
+            print("  meta.json")
+            print("")
+            print("Next:  swift run ReadabilityCLI parse \(name)")
+        } catch let err as ValidationError {
+            throw err
         } catch {
-            printError("Error: \(error)")
-            if case CLIError.noInput = error {
-                printUsage()
-            }
-            exit(1)
+            try? fm.removeItem(at: dest)
+            throw error
         }
     }
 }
+
+// MARK: - parse
+
+struct Parse: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Run Swift and Mozilla Readability on a staged case for comparison."
+    )
+
+    @Argument(help: "The case name to parse.")
+    var caseName: String
+
+    mutating func run() async throws {
+        let fm = FileManager.default
+        let dest = stagingCaseDir(for: caseName)
+        let sourceFile = dest.appendingPathComponent("source.html")
+        guard fm.fileExists(atPath: sourceFile.path) else {
+            throw ValidationError("No staged case '\(caseName)'. Run 'fetch <url> --name \(caseName)' first.")
+        }
+
+        let html = try String(contentsOf: sourceFile, encoding: .utf8)
+
+        // Swift Readability
+        printErr("Swift Readability ...")
+        let result = try Readability(html: html).parse()
+        try result.content.write(
+            to: dest.appendingPathComponent("swift-out.html"),
+            atomically: true, encoding: .utf8)
+
+        var swiftMeta: [String: Any] = ["title": result.title, "length": result.length]
+        if let v = result.byline  { swiftMeta["byline"]  = v }
+        if let v = result.excerpt { swiftMeta["excerpt"] = v }
+        let swiftMetaData = try JSONSerialization.data(withJSONObject: swiftMeta, options: .prettyPrinted)
+        try swiftMetaData.write(to: dest.appendingPathComponent("swift-result.json"))
+
+        print("  swift-out.html")
+        print("  swift-result.json")
+
+        // Mozilla Readability.js
+        guard let runtime = detectJSRuntime() else {
+            print("")
+            printErr("Note: node not found on $PATH. Mozilla comparison skipped.")
+            printErr("Install Node.js and re-run 'parse \(caseName)'.")
+            printErr("(The bridge script uses CJS + jsdom and requires Node.js.)")
+            print("Next:  swift run ReadabilityCLI commit \(caseName)")
+            return
+        }
+
+        let cwd = URL(fileURLWithPath: fm.currentDirectoryPath)
+        let bridgePath = cwd.appendingPathComponent("scripts/mozilla-bridge.js")
+        guard fm.fileExists(atPath: bridgePath.path) else {
+            printErr("Warning: bridge script not found at \(bridgePath.path). Mozilla comparison skipped.")
+            return
+        }
+
+        printErr("Mozilla Readability.js (\(runtime.isDeno ? "deno" : "node")) ...")
+        let args: [String] = runtime.isDeno
+            ? ["run", "--allow-read", bridgePath.path, sourceFile.path]
+            : [bridgePath.path, sourceFile.path]
+
+        let jsProcess = Process()
+        jsProcess.executableURL = URL(fileURLWithPath: runtime.path)
+        jsProcess.arguments = args
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        jsProcess.standardOutput = outPipe
+        jsProcess.standardError = errPipe
+        try jsProcess.run()
+        jsProcess.waitUntilExit()
+
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        if !errData.isEmpty,
+           let msg = String(data: errData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+            printErr("JS bridge: \(msg)")
+        }
+        guard jsProcess.terminationStatus == 0 else {
+            throw ValidationError("Mozilla bridge exited with status \(jsProcess.terminationStatus).")
+        }
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard var json = try JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
+            throw ValidationError("Could not parse JS bridge output as JSON.")
+        }
+
+        // Write mozilla-out.html (content only)
+        let mozContent = json["content"] as? String ?? ""
+        try mozContent.write(
+            to: dest.appendingPathComponent("mozilla-out.html"),
+            atomically: true, encoding: .utf8)
+
+        // Write mozilla-result.json (full bridge output)
+        try outData.write(to: dest.appendingPathComponent("mozilla-result.json"))
+
+        // Write draft-expected-metadata.json (metadata fields only — no content)
+        json.removeValue(forKey: "content")
+        let draftMetaData = try JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try draftMetaData.write(to: dest.appendingPathComponent("draft-expected-metadata.json"))
+
+        print("  mozilla-out.html")
+        print("  mozilla-result.json")
+        print("  draft-expected-metadata.json")
+        print("")
+        print("Review, then promote to expected.*:")
+        print("  cp .staging/\(caseName)/mozilla-out.html .staging/\(caseName)/expected.html")
+        print("  cp .staging/\(caseName)/draft-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+        print("  (edit as needed)")
+        print("  swift run ReadabilityCLI commit \(caseName)")
+    }
+}
+
+// MARK: - commit
+
+struct Commit: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Promote a finalized staging case into the ex-pages test suite."
+    )
+
+    @Argument(help: "The case name to commit.")
+    var caseName: String
+
+    mutating func run() async throws {
+        let fm = FileManager.default
+        let src = stagingCaseDir(for: caseName)
+        guard fm.fileExists(atPath: src.path) else {
+            throw ValidationError("No staged case '\(caseName)'. Run 'fetch' and 'parse' first.")
+        }
+
+        let sourceFile   = src.appendingPathComponent("source.html")
+        let expectedHTML = src.appendingPathComponent("expected.html")
+        let expectedMeta = src.appendingPathComponent("expected-metadata.json")
+        let draftHTML    = src.appendingPathComponent("draft-expected.html")
+
+        // Helpful error when drafts have not been renamed
+        if !fm.fileExists(atPath: expectedHTML.path), fm.fileExists(atPath: draftHTML.path) {
+            printErr("Error: draft-expected.html found but expected.html is missing. Rename before committing:")
+            printErr("  mv .staging/\(caseName)/draft-expected.html .staging/\(caseName)/expected.html")
+            printErr("  mv .staging/\(caseName)/draft-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+            throw ExitCode.failure
+        }
+        guard fm.fileExists(atPath: sourceFile.path) else {
+            throw ValidationError("source.html is missing from staging.")
+        }
+        guard fm.fileExists(atPath: expectedHTML.path) else {
+            throw ValidationError("expected.html not found. Copy mozilla-out.html and rename it expected.html.")
+        }
+        guard fm.fileExists(atPath: expectedMeta.path) else {
+            throw ValidationError("expected-metadata.json not found. Copy draft-expected-metadata.json and rename it.")
+        }
+
+        // Destination: ../Tests/ReadabilityTests/Resources/ex-pages/<caseName>/
+        let cwd = URL(fileURLWithPath: fm.currentDirectoryPath)
+        let destDir = cwd
+            .deletingLastPathComponent()
+            .appendingPathComponent("Tests/ReadabilityTests/Resources/ex-pages")
+            .appendingPathComponent(caseName)
+            .standardized
+
+        if fm.fileExists(atPath: destDir.path) {
+            print("Note: ex-pages/\(caseName) already exists — overwriting.")
+        } else {
+            try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+        }
+
+        for (fileName, from) in [
+            ("source.html",            sourceFile),
+            ("expected.html",          expectedHTML),
+            ("expected-metadata.json", expectedMeta)
+        ] {
+            let to = destDir.appendingPathComponent(fileName)
+            if fm.fileExists(atPath: to.path) { try fm.removeItem(at: to) }
+            try fm.copyItem(at: from, to: to)
+            print("  Copied \(fileName) → ex-pages/\(caseName)/")
+        }
+
+        // Generate UpperCamelCase function suffix from case name
+        let funcName = caseName
+            .split(separator: "-")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+            .joined()
+
+        print("")
+        print("Add to ExPagesCompatibilityTests.swift:")
+        print("""
+            @Test("\(caseName) - Title matches expected")
+            func test\(funcName)Title() async throws {
+                guard let testCase = TestLoader.loadTestCase(named: "\(caseName)", in: "ex-pages") else {
+                    Issue.record("Failed to load test case '\(caseName)'")
+                    return
+                }
+                let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
+                #expect(result.title == testCase.expectedMetadata.title)
+            }
+            """)
+        print("")
+        print("Staging not removed. Run 'clean \(caseName)' when done.")
+    }
+}
+
+// MARK: - clean
+
+struct Clean: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Remove staging files for a case or the entire .staging/ directory."
+    )
+
+    @Argument(help: "The case name to remove. Omit to clean the entire .staging/ directory.")
+    var caseName: String?
+
+    mutating func run() async throws {
+        let fm = FileManager.default
+        let root = stagingRootDir()
+
+        if let name = caseName {
+            let target = root.appendingPathComponent(name)
+            guard fm.fileExists(atPath: target.path) else {
+                throw ValidationError("No staged case '\(name)' found.")
+            }
+            print("About to delete: .staging/\(name)/  Confirm? [y/N] ", terminator: "")
+            let response = (readLine() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard response == "y" || response == "yes" else { print("Cancelled."); return }
+            try fm.removeItem(at: target)
+            print("Deleted .staging/\(name)/")
+        } else {
+            guard fm.fileExists(atPath: root.path) else {
+                print("Nothing to clean: .staging/ does not exist.")
+                return
+            }
+            print("About to delete: entire .staging/ directory.  Confirm? [y/N] ", terminator: "")
+            let response = (readLine() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard response == "y" || response == "yes" else { print("Cancelled."); return }
+            try fm.removeItem(at: root)
+            print("Deleted .staging/")
+        }
+    }
+}
+

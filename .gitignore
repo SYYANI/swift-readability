@@ -12,4 +12,6 @@ local
 db
 ref
 
-**/Benchmark/reports
+CLI/.staging/
+CLI/scripts/node_modules/
+CLI/scripts/package-lock.json

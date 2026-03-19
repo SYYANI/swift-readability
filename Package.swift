@@ -27,7 +27,8 @@ let package = Package(
             dependencies: ["Readability", "SwiftSoup"],
             resources: [
                 .copy("Resources/test-pages"),
-                .copy("Resources/realworld-pages")
+                .copy("Resources/realworld-pages"),
+                .copy("Resources/ex-pages")
             ]
         ),
     ]
