@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import Readability
+import SwiftSoup
 
 // MARK: - Entry point
 
@@ -495,6 +496,13 @@ struct Inspect: AsyncParsableCommand {
     @Argument(help: "The case name to inspect (must be staged with 'fetch' first).")
     var caseName: String
 
+    @Option(
+        name: .long,
+        parsing: .upToNextOption,
+        help: "CSS selector probe to run against source.html. Repeat to inspect multiple selectors."
+    )
+    var selector: [String] = []
+
     mutating func run() async throws {
         let fm = FileManager.default
         let caseDir = stagingCaseDir(for: caseName)
@@ -504,8 +512,19 @@ struct Inspect: AsyncParsableCommand {
         }
         let html = try String(contentsOf: sourceFile, encoding: .utf8)
         let readability = try Readability(html: html)
-        let (_, report) = try readability.parseWithInspection()
-        print(formatReport(report))
+        let (result, report) = try readability.parseWithInspection()
+
+        var output = formatReport(report)
+        if !selector.isEmpty {
+            let sourceDoc = try SwiftSoup.parse(html)
+            output += "\n\n" + formatSelectorProbe(
+                selectors: selector,
+                sourceDoc: sourceDoc,
+                report: report,
+                result: result
+            )
+        }
+        print(output)
     }
 
     private func formatReport(_ report: InspectionReport) -> String {
@@ -664,6 +683,134 @@ struct Inspect: AsyncParsableCommand {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func formatSelectorProbe(
+        selectors: [String],
+        sourceDoc: Document,
+        report: InspectionReport,
+        result: ReadabilityResult
+    ) -> String {
+        var lines: [String] = []
+        lines.append("Selector probe:")
+
+        guard let focusPass = report.passes.last(where: { $0.accepted }) ?? report.passes.last else {
+            lines.append("  (no passes recorded)")
+            return lines.joined(separator: "\n")
+        }
+
+        var candidateMap: [String: String] = [:]
+        for candidate in focusPass.topCandidates {
+            candidateMap[candidate.path] = candidate.descriptor
+        }
+        if let finalCandidate = focusPass.finalCandidate {
+            candidateMap[finalCandidate.path] = finalCandidate.descriptor
+        }
+
+        let extractedContent = result.content
+
+        for selector in selectors {
+            lines.append("  selector: \(selector)")
+
+            do {
+                let matches = try sourceDoc.select(selector)
+                if matches.isEmpty() {
+                    lines.append("    matches: 0")
+                    continue
+                }
+
+                lines.append("    matches: \(matches.count)")
+
+                for (index, match) in matches.array().enumerated() {
+                    let descriptor = conciseElementDescriptor(match)
+                    let path = nodePath(match)
+                    let parentSummary: String
+                    if let parent = match.parent() {
+                        parentSummary = "\(conciseElementDescriptor(parent)) @ \(nodePath(parent))"
+                    } else {
+                        parentSummary = "(none)"
+                    }
+
+                    let nearestCandidate = nearestCandidateAncestor(for: match, candidateMap: candidateMap)
+                    let nearestCandidateSummary = nearestCandidate.map { "\($0.descriptor) @ \($0.path)" } ?? "(none)"
+                    let exactFragmentMatch = exactFragmentMatchInExtractedContent(match, extractedContent: extractedContent)
+
+                    lines.append("    [\(index + 1)] \(descriptor) @ \(path)")
+                    lines.append("         parent: \(parentSummary)")
+                    lines.append("         nearest-candidate: \(nearestCandidateSummary)")
+                    lines.append("         exact-fragment-match: \(exactFragmentMatch ? "yes" : "no")")
+                }
+            } catch {
+                lines.append("    error: \(error)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func nearestCandidateAncestor(
+        for element: Element,
+        candidateMap: [String: String]
+    ) -> (descriptor: String, path: String)? {
+        var current: Element? = element
+        while let node = current {
+            let path = nodePath(node)
+            if let descriptor = candidateMap[path] {
+                return (descriptor: descriptor, path: path)
+            }
+            current = node.parent()
+        }
+        return nil
+    }
+
+    private func exactFragmentMatchInExtractedContent(_ element: Element, extractedContent: String) -> Bool {
+        guard let html = try? element.outerHtml(), !html.isEmpty else {
+            return false
+        }
+        return extractedContent.contains(html)
+    }
+
+    private func conciseElementDescriptor(_ element: Element) -> String {
+        let tag = element.tagName().lowercased()
+        let id = element.id()
+        let firstClass = ((try? element.className()) ?? "")
+            .split(separator: " ").first.map(String.init) ?? ""
+        var desc = tag
+        if !id.isEmpty {
+            desc += "#\(id)"
+        } else if !firstClass.isEmpty {
+            desc += ".\(firstClass)"
+        }
+        return desc
+    }
+
+    private func nodePath(_ node: Node) -> String {
+        var parts: [String] = []
+        var current: Node? = node
+
+        while let n = current {
+            if let element = n as? Element {
+                let tag = element.tagName().lowercased()
+                var position = 1
+                if let parent = element.parent() {
+                    for sibling in parent.getChildNodes() {
+                        guard sibling !== element else { break }
+                        if let siblingElement = sibling as? Element,
+                           siblingElement.tagName().lowercased() == tag {
+                            position += 1
+                        }
+                    }
+                }
+                parts.append("\(tag)[\(position)]")
+            } else if n is TextNode {
+                parts.append("text()")
+            } else {
+                parts.append(n.nodeName())
+            }
+            current = n.parent()
+        }
+
+        return "/" + parts.reversed().joined(separator: "/")
     }
 }
 
