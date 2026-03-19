@@ -257,40 +257,37 @@ Repository test work is usually done in four buckets:
 - `ExPagesCompatibilityTests`
 - other library-level regression suites
 
-Default validation order during case work:
+#### Commands
 
-1. Run the smallest targeted test first.
-2. Run `ExPagesCompatibilityTests` for locally captured cases.
-3. Run `RealWorldCompatibilityTests`.
-4. Run `MozillaCompatibilityTests`.
-5. Run full `swift test` only for milestone validation or explicit need.
-
-Keep `AGENTS.md` focused on the rule above. For staged-case workflow and CLI-based debugging steps, see `CLI/README.md`.
-
-**Run All Tests:**
-```bash
-swift test
-```
-
-**Run Ex-pages Compatibility Tests First:**
+**Run Our Extra Real-world Pages Tests**
 ```bash
 swift test --filter ExPagesCompatibilityTests
 ```
 
-**Run Real-world Compatibility Tests:**
+**Run Mozilla Real-world Page Tests**
 ```bash
 swift test --filter RealWorldCompatibilityTests
 ```
 
-**Run Compatibility Tests Only:**
+**Run Mozilla Feature Compatibility Tests**
 ```bash
 swift test --filter MozillaCompatibilityTests
 ```
 
-**Run Specific Test:**
+**Run Specific Test**
 ```bash
-swift test --filter "001 - Title matches expected exactly"
+swift test --filter ExPagesCompatibilityTests.test1a232Content
 ```
+
+#### General Workflow for Case Verification
+
+Default validation order during case work:
+
+1. Run `ExPagesCompatibilityTests` for locally captured cases.
+2. Run `RealWorldCompatibilityTests`.
+3. Run `MozillaCompatibilityTests`.
+
+For staged-case workflow and CLI-based debugging steps, see `CLI/README.md`.
 
 ### Test Failure Response Protocol
 
@@ -307,42 +304,18 @@ When a test fails:
 
 ## Quick Reference
 
-### Commands
+### Debugging Tool Usage
 ```bash
-swift build && swift test
-cd CLI && swift run ReadabilityCLI fetch <url> --name <case>
-cd CLI && swift run ReadabilityCLI inspect <case>
-```
+cd CLI
+swift run ReadabilityCLI fetch <url> --name <case>
+swift run ReadabilityCLI parse <case>
+swift run ReadabilityCLI review <case>
+swift run ReadabilityCLI commit <case>
 
-### Key Files
-- `Sources/Readability/Readability.swift` - Main implementation
-- `Tests/ReadabilityTests/MozillaCompatibilityTests.swift` - Compatibility tests
-- `Package.swift` - Swift 6.2, depends on `SwiftSoup`
+swift run ReadabilityCLI inspect <case>
+```
 
 ### External Resources
 - Mozilla Readability: https://github.com/mozilla/readability
   - Local clone at `./ref/mozilla-readability`
 - SwiftSoup: https://github.com/scinfu/SwiftSoup
-
----
-
-## Future Enhancements
-
-### Comparator Diagnostics (P2)
-
-**Current State:** `MozillaCompatibilityTests` now uses structural DOM comparison with node-path first-diff diagnostics.
-
-**Remaining Enhancement Opportunity:**
-1. Improve mismatch summarization for very large fixtures (multiple strategic diff anchors, not only first mismatch).
-2. Add optional debug output grouping by mismatch type (descriptor / text / attribute).
-3. Keep assertions strict; diagnostics should improve developer speed only.
-
-**Priority:** P2 (Medium) - correctness gate is in place; this is developer efficiency work.
-
----
-
-## See Also
-
-- `PLAN.md` - Feature road map, implementation phases, and known issues
-- `CORE.md` - Core scoring algorithm detailed design
-- `INIT.md` - Original project planning (Chinese)

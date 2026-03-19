@@ -1,4 +1,4 @@
-# ReadabilityCLI
+# Readability CLI Guide
 
 `ReadabilityCLI` is the issue-capture and calibration tool for this repository.
 It is used to:
@@ -171,68 +171,73 @@ Behavior:
 
 ## Standard Debugging Workflow For A Problem Page
 
-Use this flow for a new problematic real-world page:
+Use this flow for one problematic real-world page at a time. Do not mix multiple cases together in the same debugging loop.
 
-1. Stage the page.
-
-```bash
-swift run ReadabilityCLI fetch <url> --name <case>
-```
-
-2. Inspect pass behavior and candidate selection.
+1. In `./CLI`, fetch the raw HTML for the case.
 
 ```bash
-swift run ReadabilityCLI inspect <case>
+./readability fetch <url> --name <case>
 ```
 
-3. Generate Swift and Mozilla outputs.
+2. Run `parse` to generate both our output and Mozilla's output.
 
 ```bash
-swift run ReadabilityCLI parse <case>
+./readability parse <case>
 ```
 
-4. Review outputs side by side.
+3. Run `review` to open the side-by-side comparison view.
 
 ```bash
-swift run ReadabilityCLI review <case>
+./readability review <case>
 ```
 
-5. Decide what kind of bug this is.
+Use this step to prompt human review, identify the meaningful differences, and make an initial judgment about whether the mismatch is in content selection, cleanup, serialization, or metadata.
 
-- candidate scoring or promotion problem
-- sibling merge problem
-- cleaner/post-process problem
-- serialization mismatch
-- metadata mismatch
-- SwiftSoup-vs-Mozilla environment difference
+4. Collaboratively decide the ideal target output for this case.
 
-6. Fix the smallest mechanism that explains the mismatch.
+This means the developer and the agent should agree on the desired `expected.html` and `expected-metadata.json`, rather than assuming Mozilla output can always be promoted unchanged.
 
-7. Re-run validation in repository test order.
+5. Commit the raw HTML and finalized expected output into `ex-pages`.
+
+```bash
+./readability commit <case>
+```
+
+6. Add the committed test to `Tests/ReadabilityTests/ExPagesCompatibilityTests.swift`.
+
+7. In the repository root, run the ex-pages suite first and read the failure details.
 
 ```bash
 cd ..
 swift test --filter ExPagesCompatibilityTests
+```
+
+8. Return to `./CLI` and use `inspect` and related commands to diagnose the problem and fix the implementation.
+
+```bash
+cd CLI
+./readability inspect <case>
+```
+
+9. In the repository root, re-run `ExPagesCompatibilityTests` to confirm the fix.
+
+```bash
+cd ..
+swift test --filter ExPagesCompatibilityTests
+```
+
+If the case still fails, go back to the previous step and continue iterating. If it passes, then run the broader compatibility suites.
+
+```bash
 swift test --filter RealWorldCompatibilityTests
 swift test --filter MozillaCompatibilityTests
 ```
 
-8. When the case is finalized, promote it into `ex-pages`.
-
-```bash
-cd CLI
-cp .staging/<case>/mozilla-out.html .staging/<case>/expected.html
-cp .staging/<case>/draft-expected-metadata.json .staging/<case>/expected-metadata.json
-# edit if needed
-swift run ReadabilityCLI commit <case>
-```
-
-9. Add the generated test template to `Tests/ReadabilityTests/ExPagesCompatibilityTests.swift`.
-
 10. Clean staging when the case is no longer needed.
 
 ```bash
-swift run ReadabilityCLI clean <case>
+cd CLI
+./readability clean <case>
 ```
 
 ## Practical Notes
