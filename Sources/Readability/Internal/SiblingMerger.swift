@@ -6,6 +6,7 @@ import SwiftSoup
 final class SiblingMerger {
     private let options: ReadabilityOptions
     private let scoringManager: NodeScoringManager
+    private let preservedExtractedFigureClass = "copilot-preserve-figure"
 
     init(options: ReadabilityOptions, scoringManager: NodeScoringManager) {
         self.options = options
@@ -47,7 +48,35 @@ final class SiblingMerger {
         // Get top candidate's class name for bonus calculation
         let topCandidateClassName = (try? topCandidate.className()) ?? ""
 
+        // Collect elements to prepend to the topCandidate clone (applied below, without
+        // modifying the original document across multi-pass retries).
+        var pendingPrepends: [Element] = []
+
         for sibling in siblings {
+            // Check if a site rule wants to extract a sub-element from this sibling.
+            // Collect extracted elements — they will be prepended to the topCandidate's
+            // clone rather than to the original element, so the source DOM stays intact.
+            if let extracted = try? SiteRuleRegistry.extractFromSibling(sibling, topCandidate: topCandidate) {
+                let extractedClasses = ((try? extracted.className()) ?? "")
+                let alteredExtracted: Element
+                if extracted.tagName().uppercased() == "FIGURE" && extractedClasses.contains(preservedExtractedFigureClass) {
+                    alteredExtracted = try DOMHelpers.cloneElement(extracted, in: doc)
+                    let sanitizedClasses = extractedClasses
+                        .split(separator: " ")
+                        .filter { $0 != Substring(preservedExtractedFigureClass) }
+                        .joined(separator: " ")
+                    if sanitizedClasses.isEmpty {
+                        try alteredExtracted.removeAttr("class")
+                    } else {
+                        try alteredExtracted.attr("class", sanitizedClasses)
+                    }
+                } else {
+                    alteredExtracted = try alterToDivIfNeeded(extracted, in: doc)
+                }
+                pendingPrepends.append(alteredExtracted)
+                continue
+            }
+
             let shouldAppend = try shouldAppendSibling(
                 sibling,
                 topCandidate: topCandidate,
@@ -58,6 +87,15 @@ final class SiblingMerger {
             if shouldAppend {
                 // Alter tag if needed (convert to DIV unless in exceptions)
                 let alteredSibling = try alterToDivIfNeeded(sibling, in: doc)
+
+                // If this is the topCandidate, prepend any extracted leading elements
+                // so they appear at the top of the content div (in original order).
+                if sibling === topCandidate && !pendingPrepends.isEmpty {
+                    for prepend in pendingPrepends.reversed() {
+                        try alteredSibling.prependChild(prepend)
+                    }
+                }
+
                 try articleContent.appendChild(alteredSibling)
             }
         }
@@ -110,6 +148,11 @@ final class SiblingMerger {
 
         // Preserve trailing BR nodes that follow included content.
         if sibling.tagName().uppercased() == "BR" && (try? sibling.nextElementSibling()) == nil {
+            return true
+        }
+
+        // Check site rules for explicit sibling inclusion (e.g. WordPress featured image).
+        if (try? SiteRuleRegistry.anySiblingInclusionRuleAllows(sibling, topCandidate: topCandidate)) == true {
             return true
         }
 

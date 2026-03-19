@@ -33,3 +33,16 @@ protocol BylineSiteRule: SiteRule {
 protocol BylineContainerRetentionSiteRule: SiteRule {
     static func shouldKeepBylineContainer(_ node: Element, sourceURL: URL?, document: Document) throws -> Bool
 }
+
+/// Allows a site rule to force-include a sibling of the top candidate.
+/// Return `true` to include, `false` to exclude, `nil` to defer to default logic.
+protocol SiblingInclusionSiteRule: SiteRule {
+    static func shouldIncludeSibling(_ sibling: Element, topCandidate: Element) throws -> Bool?
+}
+
+/// Allows a site rule to extract a sub-element from a sibling and include only that sub-element.
+/// If a rule returns a non-nil element, the full sibling is skipped and the extracted element is
+/// appended to article content instead. Return `nil` to defer to default logic.
+protocol SiblingExtractSiteRule: SiteRule {
+    static func extractFromSibling(_ sibling: Element, topCandidate: Element) throws -> Element?
+}

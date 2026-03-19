@@ -106,6 +106,39 @@ enum SiteRuleRegistry {
         try applyArticleCleanerRules(rules, to: articleContent, context: context)
     }
 
+    /// Returns true if any site rule explicitly allows the sibling to be included.
+    static func anySiblingInclusionRuleAllows(
+        _ sibling: Element,
+        topCandidate: Element
+    ) throws -> Bool {
+        let rules: [SiblingInclusionSiteRule.Type] = [
+            WordPressFeaturedImageRule.self
+        ]
+        for rule in rules {
+            if let decision = try rule.shouldIncludeSibling(sibling, topCandidate: topCandidate) {
+                return decision
+            }
+        }
+        return false
+    }
+
+    /// Returns an extracted sub-element from the sibling if any site rule wants to extract one.
+    /// When non-nil is returned, the caller should append the returned element and skip the original sibling.
+    static func extractFromSibling(
+        _ sibling: Element,
+        topCandidate: Element
+    ) throws -> Element? {
+        let rules: [SiblingExtractSiteRule.Type] = [
+            WordPressFeaturedImageExtractRule.self
+        ]
+        for rule in rules {
+            if let extracted = try rule.extractFromSibling(sibling, topCandidate: topCandidate) {
+                return extracted
+            }
+        }
+        return nil
+    }
+
     static func applyPreConversionRules(
         to articleContent: Element,
         context: ArticleCleanerSiteRuleContext
