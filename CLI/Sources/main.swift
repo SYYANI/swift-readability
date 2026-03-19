@@ -12,7 +12,7 @@ import Readability
 struct ReadabilityCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Issue Capture & Ground Truth Calibration Pipeline.",
-        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self]
+        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self, Inspect.self]
     )
 }
 
@@ -482,6 +482,117 @@ struct Commit: AsyncParsableCommand {
             """)
         print("")
         print("Staging not removed. Run 'clean \(caseName)' when done.")
+    }
+}
+
+// MARK: - inspect
+
+struct Inspect: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Show extraction trace for a staged case (score breakdown, promotion path, pass summary)."
+    )
+
+    @Argument(help: "The case name to inspect (must be staged with 'fetch' first).")
+    var caseName: String
+
+    mutating func run() async throws {
+        let fm = FileManager.default
+        let caseDir = stagingCaseDir(for: caseName)
+        let sourceFile = caseDir.appendingPathComponent("source.html")
+        guard fm.fileExists(atPath: sourceFile.path) else {
+            throw ValidationError("No staged source.html for case '\(caseName)'. Run 'fetch' first.")
+        }
+        let html = try String(contentsOf: sourceFile, encoding: .utf8)
+        let readability = try Readability(html: html)
+        let (_, report) = try readability.parseWithInspection()
+        print(formatReport(report))
+    }
+
+    private func formatReport(_ report: InspectionReport) -> String {
+        var lines: [String] = []
+
+        // --- Pass summary ---
+        for pass in report.passes {
+            let flagStr = pass.activeFlags.isEmpty ? "(none)" : pass.activeFlags.joined(separator: " | ")
+            let flagColumn = "[\(flagStr)]"
+            let outcome: String
+            if pass.accepted {
+                outcome = "content=\(pass.contentLength) chars \u{2265} threshold=\(pass.charThreshold) → accepted"
+            } else {
+                outcome = "content=\(pass.contentLength) chars < threshold=\(pass.charThreshold) → retry"
+            }
+            lines.append("Pass \(String(pass.passNumber).padding(toLength: 2, withPad: " ", startingAt: 0))  \(flagColumn.padding(toLength: 30, withPad: " ", startingAt: 0))  \(outcome)")
+        }
+
+        // --- Focus pass: last accepted, or last overall if all failed ---
+        guard let focusPass = report.passes.last(where: { $0.accepted }) ?? report.passes.last else {
+            lines.append("(no passes recorded)")
+            return lines.joined(separator: "\n")
+        }
+
+        lines.append("")
+        let focusFlagStr = focusPass.activeFlags.isEmpty ? "(none)" : focusPass.activeFlags.joined(separator: " | ")
+        lines.append("Top candidates (Pass \(focusPass.passNumber), flags=\(focusFlagStr)):")
+
+        let finalDescriptor = focusPass.finalCandidate?.descriptor
+        let initialDescriptor = focusPass.initialWinner?.descriptor
+        let promotionOccurred = finalDescriptor != nil && finalDescriptor != initialDescriptor
+
+        for (idx, candidate) in focusPass.topCandidates.enumerated() {
+            var annotation = ""
+            if promotionOccurred {
+                if candidate.descriptor == finalDescriptor {
+                    annotation = "  \u{2190} selected via promotion"
+                } else if candidate.descriptor == initialDescriptor {
+                    annotation = "  \u{2190} top scorer"
+                }
+            } else if candidate.descriptor == finalDescriptor {
+                annotation = "  \u{2190} selected"
+            }
+            lines.append(String(format: "  #%-2d  %@  depth=%d  score=%.3f%@",
+                                idx + 1, candidate.descriptor as CVarArg, candidate.depth, candidate.score, annotation as CVarArg))
+            let weightNote: String
+            if focusPass.activeFlags.contains("WEIGHT") {
+                weightNote = String(format: "%.1f", candidate.classWeightTotal)
+            } else {
+                weightNote = "0 (WEIGHT flag off)"
+            }
+            lines.append(String(format: "        base=%.0f  classWeight=%@  children=%+.3f",
+                                candidate.baseScore, weightNote as CVarArg, candidate.childrenScore))
+        }
+
+        // --- Promotion trace ---
+        if !focusPass.promotionTrace.isEmpty {
+            lines.append("")
+            lines.append("Promotion trace:")
+            for step in focusPass.promotionTrace {
+                lines.append("  \(step.descriptor.padding(toLength: 45, withPad: " ", startingAt: 0))  score=\(String(format: "%7.3f", step.score))  \(step.action)")
+            }
+        }
+
+        // --- Class weight reference (passes where WEIGHT was active) ---
+        let weightPasses = report.passes.filter { $0.activeFlags.contains("WEIGHT") }
+        if !weightPasses.isEmpty {
+            lines.append("")
+            for wPass in weightPasses {
+                let wFlagStr = wPass.activeFlags.joined(separator: " | ")
+                lines.append("Class weight reference (Pass \(wPass.passNumber), flags=\(wFlagStr)):")
+                var emitted = false
+                for candidate in wPass.topCandidates {
+                    for comp in candidate.classWeightComponents {
+                        let sign = comp.points >= 0 ? "+" : ""
+                        let patterns = comp.matchedPatterns.joined(separator: ", ")
+                        lines.append("  \(candidate.descriptor)  \(sign)\(Int(comp.points))  [\(comp.attribute)==\(comp.side)]: \(patterns)")
+                        emitted = true
+                    }
+                }
+                if !emitted {
+                    lines.append("  (no class/id weight components matched)")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
     }
 }
 

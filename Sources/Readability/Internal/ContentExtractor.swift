@@ -16,6 +16,7 @@ final class ContentExtractor {
     private var attempts: [ExtractionAttempt]
     private var pageCacheHtml: String?
     private var articleByline: String?
+    private let inspectionContext: InspectionContext?
 
     /// Represents a single extraction attempt
     struct ExtractionAttempt {
@@ -31,12 +32,14 @@ final class ContentExtractor {
         doc: Document,
         options: ReadabilityOptions,
         articleTitle: String = "",
-        sourceURL: URL? = nil
+        sourceURL: URL? = nil,
+        inspectionContext: InspectionContext? = nil
     ) {
         self.doc = doc
         self.options = options
         self.articleTitle = articleTitle
         self.sourceURL = sourceURL
+        self.inspectionContext = inspectionContext
         self.flags = Configuration.flagStripUnlikelies |
                      Configuration.flagWeightClasses |
                      Configuration.flagCleanConditionally
@@ -62,6 +65,10 @@ final class ContentExtractor {
 
         // Multi-attempt loop
         while true {
+            // Begin inspection pass
+            let passNumber = attempts.count + 1
+            inspectionContext?.beginPass(number: passNumber, flagBits: flags)
+
             // Reset byline for each attempt
             articleByline = nil
 
@@ -79,6 +86,7 @@ final class ContentExtractor {
 
             if textLength >= options.charThreshold {
                 // Success!
+                inspectionContext?.endPass(contentLength: textLength, accepted: true)
                 result = (
                     content: attemptResult.content,
                     byline: articleByline ?? attemptResult.byline,
@@ -89,7 +97,8 @@ final class ContentExtractor {
                 break
             }
 
-            // Content too short, track attempt
+            // Content too short; record the failed attempt
+            inspectionContext?.endPass(contentLength: textLength, accepted: false)
             attempts.append(ExtractionAttempt(
                 articleContent: attemptResult.content,
                 byline: articleByline ?? attemptResult.byline,
@@ -146,7 +155,7 @@ final class ContentExtractor {
             }
         )
         cleaner.setArticleTitle(articleTitle)
-        let selector = CandidateSelector(options: options, scoringManager: scoringManager)
+        let selector = CandidateSelector(options: options, scoringManager: scoringManager, inspectionContext: inspectionContext)
 
         // Phase 1: Remove unlikely candidates and extract byline
         if isFlagActive(Configuration.flagStripUnlikelies) {

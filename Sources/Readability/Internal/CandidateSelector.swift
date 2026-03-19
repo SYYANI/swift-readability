@@ -6,10 +6,12 @@ import SwiftSoup
 final class CandidateSelector {
     private let options: ReadabilityOptions
     private let scoringManager: NodeScoringManager
+    private let inspectionContext: InspectionContext?
 
-    init(options: ReadabilityOptions, scoringManager: NodeScoringManager) {
+    init(options: ReadabilityOptions, scoringManager: NodeScoringManager, inspectionContext: InspectionContext? = nil) {
         self.options = options
         self.scoringManager = scoringManager
+        self.inspectionContext = inspectionContext
     }
 
     // MARK: - Top Candidate Selection
@@ -22,6 +24,15 @@ final class CandidateSelector {
     /// - Throws: SwiftSoup errors
     func selectTopCandidate(from elements: [Element], in doc: Document) throws -> (candidate: Element, neededToCreate: Bool) {
         let topCandidates = collectTopCandidates(from: elements)
+
+        // Record scored candidates for inspection
+        if let ctx = inspectionContext, !topCandidates.isEmpty {
+            let flagWeightActive = (ctx.currentPassFlagBits & Configuration.flagWeightClasses) != 0
+            ctx.recordTopCandidates(topCandidates.all.map { makeRawCandidateInfo($0.element, flagWeightClasses: flagWeightActive) })
+            if let best = topCandidates.best {
+                ctx.recordInitialWinner(makeRawCandidateInfo(best.element, flagWeightClasses: flagWeightActive))
+            }
+        }
 
         if options.debug, topCandidates.count > 0 {
             var summaries: [String] = []
@@ -58,7 +69,12 @@ final class CandidateSelector {
 
             if options.debug, let chosen = topCandidate {
                 print("[ReadabilityDebug] Chosen top candidate: \(describe(chosen))")
-                print("[ReadabilityDebug] Candidate ancestor chain: \(describeAncestorChain(from: chosen).joined(separator: " > "))")
+            }
+
+            // Record final selected candidate for inspection
+            if let ctx = inspectionContext, let chosen = topCandidate {
+                let flagWeightActive = (ctx.currentPassFlagBits & Configuration.flagWeightClasses) != 0
+                ctx.recordFinalCandidate(makeRawCandidateInfo(chosen, flagWeightClasses: flagWeightActive))
             }
         }
 
@@ -200,6 +216,12 @@ final class CandidateSelector {
         var lastScore = scoreForParentPromotion(candidate)
         let scoreThreshold = lastScore / 3
 
+        inspectionContext?.recordPromotionStep(
+            descriptor: elementDescriptor(candidate),
+            score: lastScore,
+            action: "initial (threshold \u{2265} \(String(format: "%.3f", scoreThreshold)))"
+        )
+
         while let parent = parentOfTopCandidate,
               parent.tagName().uppercased() != "BODY" {
 
@@ -213,18 +235,38 @@ final class CandidateSelector {
 
             // If score is too low, stop
             if parentScore < scoreThreshold {
+                inspectionContext?.recordPromotionStep(
+                    descriptor: elementDescriptor(parent),
+                    score: parentScore,
+                    action: "below threshold, stopped"
+                )
                 break
             }
 
             // If parent has higher score, use it
             if parentScore > lastScore {
                 if shouldKeepArticleCandidate(currentCandidate) {
+                    inspectionContext?.recordPromotionStep(
+                        descriptor: elementDescriptor(parent),
+                        score: parentScore,
+                        action: "guard kept original"
+                    )
                     break
                 }
+                inspectionContext?.recordPromotionStep(
+                    descriptor: elementDescriptor(parent),
+                    score: parentScore,
+                    action: "rose \u{2192} PROMOTED"
+                )
                 currentCandidate = parent
                 break
             }
 
+            inspectionContext?.recordPromotionStep(
+                descriptor: elementDescriptor(parent),
+                score: parentScore,
+                action: "fell, continue"
+            )
             lastScore = parentScore
             parentOfTopCandidate = parent.parent()
         }
@@ -474,17 +516,55 @@ final class CandidateSelector {
         return desc
     }
 
-    private func describeAncestorChain(from element: Element) -> [String] {
-        var chain: [String] = [describe(element)]
-        var parent = element.parent()
-        while let current = parent {
-            chain.append(describe(current))
-            if current.tagName().uppercased() == "BODY" {
-                break
-            }
-            parent = current.parent()
+    // MARK: - Inspection Helpers
+
+    /// Concise CSS-like descriptor for inspection output, e.g. "div.entry-content" or "div#main".
+    private func elementDescriptor(_ element: Element) -> String {
+        let tag = element.tagName().lowercased()
+        let id = element.id()
+        let firstClass = ((try? element.className()) ?? "")
+            .split(separator: " ").first.map(String.init) ?? ""
+        var desc = tag
+        if !id.isEmpty {
+            desc += "#\(id)"
+        } else if !firstClass.isEmpty {
+            desc += ".\(firstClass)"
         }
-        return chain
+        return desc
+    }
+
+    /// DOM depth: number of ancestor elements above this node.
+    private func elementDepth(_ element: Element) -> Int {
+        var depth = 0
+        var el: Element? = element.parent()
+        while let e = el { depth += 1; el = e.parent() }
+        return depth
+    }
+
+    /// Build an `InspectionContext.RawCandidateInfo` snapshot for the given element.
+    private func makeRawCandidateInfo(_ element: Element, flagWeightClasses: Bool) -> InspectionContext.RawCandidateInfo {
+        let finalScore = scoringManager.getContentScore(for: element)
+        let base = scoringManager.getBaseScore(for: element)
+        let (classWeight, cwTuples) = scoringManager.getClassWeightWithBreakdown(
+            for: element, flagWeightClasses: flagWeightClasses)
+        let children = finalScore - base - classWeight
+        let components = cwTuples.map {
+            InspectionContext.RawClassWeightComponent(
+                attribute: $0.attribute,
+                side: $0.side,
+                matchedPatterns: $0.matchedPatterns,
+                points: $0.points
+            )
+        }
+        return InspectionContext.RawCandidateInfo(
+            descriptor: elementDescriptor(element),
+            depth: elementDepth(element),
+            finalScore: finalScore,
+            baseScore: base,
+            classWeightTotal: classWeight,
+            classWeightComponents: components,
+            childrenScore: children
+        )
     }
 
     // MARK: - Fallback Candidate Creation

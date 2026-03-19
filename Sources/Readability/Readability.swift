@@ -25,6 +25,18 @@ public struct Readability {
     /// Parse the document and extract readable content.
     /// This instance is single-use: calling `parse()` more than once throws `ReadabilityError.alreadyParsed`.
     public func parse() throws -> ReadabilityResult {
+        return try executeParse(inspectionContext: nil)
+    }
+
+    /// Parse the document and return the result together with a full extraction trace.
+    /// This instance is single-use: calling this (or `parse()`) more than once throws `ReadabilityError.alreadyParsed`.
+    public func parseWithInspection() throws -> (result: ReadabilityResult, report: InspectionReport) {
+        let ctx = InspectionContext()
+        let result = try executeParse(inspectionContext: ctx)
+        return (result, ctx.buildReport(charThreshold: options.charThreshold))
+    }
+
+    private func executeParse(inspectionContext: InspectionContext?) throws -> ReadabilityResult {
         guard !lifecycleState.hasParsed else {
             throw ReadabilityError.alreadyParsed
         }
@@ -50,7 +62,7 @@ public struct Readability {
         }
 
         // Extract article content using new ContentExtractor
-        let extractor = ContentExtractor(doc: doc, options: options, articleTitle: title, sourceURL: sourceURL)
+        let extractor = ContentExtractor(doc: doc, options: options, articleTitle: title, sourceURL: sourceURL, inspectionContext: inspectionContext)
         let (articleContent, extractedByline, _, articleDir, articleLang) = try extractor.extract()
 
         // Post-process with ArticleCleaner

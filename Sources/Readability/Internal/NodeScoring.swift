@@ -193,6 +193,68 @@ extension NodeScoringManager {
         return weight
     }
 
+    /// Returns the tag-based base score for an element (same logic as `initializeNode`,
+    /// before class weight and child propagation). Pure function — does not touch stored scores.
+    func getBaseScore(for element: Element) -> Double {
+        switch element.tagName().uppercased() {
+        case "DIV":                                              return Configuration.baseScoreDiv
+        case "PRE", "TD", "BLOCKQUOTE":                         return Configuration.baseScorePre
+        case "ADDRESS", "OL", "UL", "DL", "DD", "DT", "LI", "FORM": return -3
+        case "H1", "H2", "H3", "H4", "H5", "H6", "TH":         return -5
+        default:                                                 return 0
+        }
+    }
+
+    /// Returns the class/id weight together with a per-group breakdown of what matched.
+    /// Pure function — does not modify any stored scores.
+    ///
+    /// Each returned component represents ONE attribute (class or id) × side (positive/negative)
+    /// group: all matching patterns in that group contribute `points` jointly (not per-pattern).
+    func getClassWeightWithBreakdown(
+        for element: Element,
+        flagWeightClasses: Bool
+    ) -> (weight: Double, components: [(attribute: String, side: String, matchedPatterns: [String], points: Double)]) {
+        guard flagWeightClasses else { return (0, []) }
+
+        var weight: Double = 0
+        var components: [(attribute: String, side: String, matchedPatterns: [String], points: Double)] = []
+
+        if let className = try? element.className(), !className.isEmpty {
+            let lower = className.lowercased()
+            let negMatches = Configuration.negativePatterns.filter { lower.contains($0) }
+            if !negMatches.isEmpty {
+                let pts = -Configuration.classWeightPositive
+                weight += pts
+                components.append(("class", "negative", negMatches, pts))
+            }
+            let posMatches = Configuration.positivePatterns.filter { lower.contains($0) }
+            if !posMatches.isEmpty {
+                let pts = Configuration.classWeightPositive
+                weight += pts
+                components.append(("class", "positive", posMatches, pts))
+            }
+        }
+
+        let id = element.id()
+        if !id.isEmpty {
+            let lower = id.lowercased()
+            let negMatches = Configuration.negativePatterns.filter { lower.contains($0) }
+            if !negMatches.isEmpty {
+                let pts = -Configuration.classWeightPositive
+                weight += pts
+                components.append(("id", "negative", negMatches, pts))
+            }
+            let posMatches = Configuration.positivePatterns.filter { lower.contains($0) }
+            if !posMatches.isEmpty {
+                let pts = Configuration.classWeightPositive
+                weight += pts
+                components.append(("id", "positive", posMatches, pts))
+            }
+        }
+
+        return (weight, components)
+    }
+
     /// Score an element for content extraction
     /// This is the main scoring logic used during grabArticle
     /// - Parameters:
