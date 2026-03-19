@@ -170,8 +170,12 @@ final class ContentExtractor {
         for element in elementsToScore {
             let score = try scoreElement(element, scoringManager: scoringManager)
             if score > 0 {
-                // Propagate score to ancestors
-                selector.propagateScoreToAncestors(element, score: score)
+                // Propagate score to ancestors, respecting FLAG_WEIGHT_CLASSES
+                selector.propagateScoreToAncestors(
+                    element,
+                    score: score,
+                    flagWeightClasses: isFlagActive(Configuration.flagWeightClasses)
+                )
             }
         }
 
@@ -626,7 +630,11 @@ final class ContentExtractor {
         flags &= ~flag
     }
 
-    /// Try next flag configuration
+    /// Try next flag configuration — mirrors Mozilla's cumulative flag removal:
+    ///   pass 1: STRIP | WEIGHT | CLEAN
+    ///   pass 2: WEIGHT | CLEAN  (remove STRIP)
+    ///   pass 3: CLEAN only      (remove WEIGHT)
+    ///   pass 4: none            (remove CLEAN) → fall back to best
     /// Returns true if there are more flags to try
     private func tryNextFlag() -> Bool {
         if isFlagActive(Configuration.flagStripUnlikelies) {
@@ -634,13 +642,9 @@ final class ContentExtractor {
             return true
         } else if isFlagActive(Configuration.flagWeightClasses) {
             removeFlag(Configuration.flagWeightClasses)
-            // Restore STRIP_UNLIKELYS for next iteration
-            flags |= Configuration.flagStripUnlikelies
             return true
         } else if isFlagActive(Configuration.flagCleanConditionally) {
             removeFlag(Configuration.flagCleanConditionally)
-            // Restore other flags
-            flags |= Configuration.flagStripUnlikelies | Configuration.flagWeightClasses
             return true
         }
         return false

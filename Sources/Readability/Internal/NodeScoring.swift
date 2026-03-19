@@ -53,7 +53,7 @@ final class NodeScoringManager {
     /// - Parameter element: Element to initialize
     /// - Returns: The initialized NodeScore
     @discardableResult
-    func initializeNode(_ element: Element) -> NodeScore {
+    func initializeNode(_ element: Element, flagWeightClasses: Bool = true) -> NodeScore {
         var score = NodeScore(contentScore: 0, initialized: true)
         let tagName = element.tagName().uppercased()
 
@@ -70,7 +70,7 @@ final class NodeScoringManager {
             break
         }
 
-        score.contentScore += getClassWeight(for: element)
+        score.contentScore += getClassWeight(for: element, flagWeightClasses: flagWeightClasses)
         setScore(score, for: element)
         return score
     }

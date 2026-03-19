@@ -122,15 +122,60 @@ The pipeline is composed of seven atomic subcommands plus one diagnostic tool.
 ---
 
 ### 5.7 `inspect` — White-Box Diagnostics
-**Goal**: When a case is under active investigation, surface the library's internal decision trace to guide whether to fix core logic or add a Site Rule.
-- **Syntax**: `ReadabilityCLI inspect <case-name> [--trace]`
-- **Process**: Execute a single Swift parse of `source.html` with diagnostics enabled, emitting a structured decision log covering:
-  - **NodeCleaner phase**: Which large blocks were pruned as noise (ads, hidden elements) and why.
-  - **Scoring phase**: Top-5 candidate nodes with their scores and penalty reasons.
-  - **Fallback phase**: Whether all candidates were discarded, triggering `<body>` extraction.
-- **Diagnostic guidance**:
-  - If broad structural heuristics (density, tag penalties) are miscategorizing legitimate content, investigate and fix **core algorithms**.
-  - If site-specific DOM structures (brand-specific class names, proprietary elements) are the root cause, write a **Site Rule**. Do not use Site Rules to mask core logic defects.
+
+**Goal**: When a case is under active investigation, surface the library's full internal decision trace so that root causes can be identified without inserting any temporary debug code into the source.
+
+**Design principle**: `inspect` is considered complete when the following completeness test is satisfied — given a known case like `1a23-1`, the inspect output alone (without reading source code) must be sufficient to identify both root causes: the buggy flag-removal sequence (`tryNextFlag`) and the ancestor initialization ignoring the `FLAG_WEIGHT_CLASSES` state.
+
+- **Syntax**: `ReadabilityCLI inspect <case-name>`
+
+#### Minimum Necessary Trace Items
+
+Four trace items form the minimum sufficient set for diagnosing extraction failures:
+
+1. **Pass trace** — For each multi-pass attempt, show: which flags were active (`STRIP`, `WEIGHT`, `CLEAN`), the resulting content length, whether the charThreshold was met, and whether the attempt was accepted or retried.
+
+2. **Candidate scores** — For each pass, show the top-N scored candidate nodes with: tag/id/class descriptor, DOM depth, final score, and score breakdown (base tag score + class weight + children propagation total).
+
+3. **Class weight breakdown** — For each candidate, enumerate which positive/negative regex patterns matched its class/id, and the exact points contributed by each match. This makes it immediately visible when an incidental class name like `ghostkit-icon-box-content` is erroneously triggering a `+25` bonus.
+
+4. **Promotion trace** — When `findBetterParentCandidate` elevates the initial winner up the ancestor chain, show the full path: each ancestor node, its score, and the direction of change (rising/falling) that triggered or blocked promotion.
+
+#### Example Output
+
+```
+Pass 1  [STRIP | WEIGHT | CLEAN]   content=247 chars < threshold=500 → retry
+Pass 2  [WEIGHT | CLEAN]           content=247 chars < threshold=500 → retry
+Pass 3  [CLEAN]                    content=2847 chars ≥ threshold=500 → accepted
+
+Top candidates (Pass 3, flags=CLEAN):
+  #1  div.ghostkit-icon-box-content  depth=7  score=11.000
+      base=5  classWeight=0 (WEIGHT flag off)  children=+6.0
+  #2  div.entry-content              depth=5  score=10.838  ← selected via promotion
+      base=5  classWeight=0 (WEIGHT flag off)  children=+5.838
+
+Promotion trace from #1:
+  div.ghostkit-icon-box-content  score=11.000  lastScore=11.000
+  div.ghostkit-icon-box          score= 8.000  ↓ fell, continue scanning
+  div.entry-content              score=10.838  ↑ rose above lastScore=8.000 → PROMOTED
+
+Class weight reference (Pass 1, flags=STRIP|WEIGHT|CLEAN):
+  div.ghostkit-icon-box-content  +25.0  matched pattern: "content"
+  div.entry-content              +25.0  matched pattern: "entry" (+12.5), "content" (+12.5)
+```
+
+#### Implementation Architecture
+
+- Add `InspectionReport` to the library (not to CLI) as a public struct returned by a new `parseWithInspection()` method (or via an options callback). Zero overhead when not invoked.
+- `InspectionReport` contains:
+  - `passes: [PassAttempt]` — one entry per `_grabArticle` loop iteration
+  - `PassAttempt`: `flagState: [String]`, `topCandidates: [CandidateInfo]`, `selectedCandidate: CandidateInfo?`, `contentLength: Int`, `accepted: Bool`
+  - `CandidateInfo`: `descriptor: String`, `depth: Int`, `score: Double`, `baseScore: Double`, `classWeightBreakdown: [(pattern: String, points: Double)]`, `childrenScore: Double`, `promotedFrom: CandidateInfo?`
+- The CLI `inspect` command calls `parseWithInspection()`, formats `InspectionReport` for terminal output, and writes it to stdout.
+
+- **Diagnostic guidance**: After reading inspect output, apply the same decision framework used in the Site Rule architecture:
+  - If flag logic, scoring algorithm, or broadly applicable heuristics are wrong → fix **core algorithms**.
+  - If the root cause is brand-specific class names or proprietary DOM structure → write a **Site Rule**.
 
 ---
 
@@ -171,9 +216,10 @@ The `expected-metadata.json` format matches the Mozilla test page schema exactly
 From Phase 1 onward, `judge` remains **manual**: copy `mozilla-out.html` to `draft-expected.html`, edit as needed, rename to `expected.*`, then call `commit`.
 
 ### Phase 2: Diagnostics System
-1. Design a `DiagnosticsTrace` protocol in the main library, distinct from the deleted performance signpost infrastructure.
-2. Extend `ReadabilityOptions` with an optional diagnostics callback (disabled by default, zero overhead when not set).
-3. Implement the `inspect` command using this callback.
+1. Add `InspectionReport`, `PassAttempt`, and `CandidateInfo` structs to the main library (public API, `Sendable`).
+2. Add a `parseWithInspection() throws -> (result: ReadabilityResult, report: InspectionReport)` method to `Readability`, implemented as a zero-cost wrapper — diagnostics data is only collected when this path is taken.
+3. Wire instrumentation points into `ContentExtractor` (pass-loop entry/exit), `CandidateSelector` (candidate scores, promotion path), and `NodeScoring` (class weight pattern matches).
+4. Implement the `inspect` CLI subcommand: call `parseWithInspection()`, format `InspectionReport` for terminal output as shown in Section 5.7.
 
 ### Phase 3: Assisted Calibration (Judge)
 1. Implement the `judge --strategy mozilla` default in code (manual copy in Phase 1).

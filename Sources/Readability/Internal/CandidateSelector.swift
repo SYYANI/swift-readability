@@ -536,7 +536,7 @@ final class CandidateSelector {
     /// - Parameters:
     ///   - element: Element that was scored
     ///   - score: The score to propagate
-    func propagateScoreToAncestors(_ element: Element, score: Double) {
+    func propagateScoreToAncestors(_ element: Element, score: Double, flagWeightClasses: Bool = true) {
         var index = 0
         var current = element.parent()
         while let ancestor = current, index < 5 {
@@ -545,7 +545,7 @@ final class CandidateSelector {
 
             // Initialize ancestor if needed
             if !scoringManager.isInitialized(ancestor) {
-                scoringManager.initializeNode(ancestor)
+                scoringManager.initializeNode(ancestor, flagWeightClasses: flagWeightClasses)
             }
 
             // Calculate score divider based on level
