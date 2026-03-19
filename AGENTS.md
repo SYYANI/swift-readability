@@ -250,9 +250,36 @@ Validation requirements for any new/modified site rule:
 
 ### Running Tests
 
+Repository test work is usually done in four buckets:
+
+- `MozillaCompatibilityTests`
+- `RealWorldCompatibilityTests`
+- `ExPagesCompatibilityTests`
+- other library-level regression suites
+
+Default validation order during case work:
+
+1. Run the smallest targeted test first.
+2. Run `ExPagesCompatibilityTests` for locally captured cases.
+3. Run `RealWorldCompatibilityTests`.
+4. Run `MozillaCompatibilityTests`.
+5. Run full `swift test` only for milestone validation or explicit need.
+
+Keep `AGENTS.md` focused on the rule above. For staged-case workflow and CLI-based debugging steps, see `CLI/README.md`.
+
 **Run All Tests:**
 ```bash
 swift test
+```
+
+**Run Ex-pages Compatibility Tests First:**
+```bash
+swift test --filter ExPagesCompatibilityTests
+```
+
+**Run Real-world Compatibility Tests:**
+```bash
+swift test --filter RealWorldCompatibilityTests
 ```
 
 **Run Compatibility Tests Only:**
@@ -265,49 +292,6 @@ swift test --filter MozillaCompatibilityTests
 swift test --filter "001 - Title matches expected exactly"
 ```
 
-### Test Infrastructure
-
-**TestLoader.swift** - Utility for loading Mozilla test cases:
-```swift
-let testCase = TestLoader.loadTestCase(named: "001")
-// Returns: sourceHTML, expectedHTML, expectedMetadata
-```
-
-**Mozilla Test Case Format:**
-```
-test-pages/001/
-├── source.html            # Input HTML
-├── expected.html          # Expected output
-└── expected-metadata.json # Expected metadata
-```
-
-**DOM Comparison:** Structural traversal comparing:
-- Node types (element, text)
-- Tag names / descriptors
-- Text content (normalized whitespace)
-- Attributes (with path-based first-diff diagnostics)
-
-### Importing New Mozilla Tests
-
-When adding a new test case from Mozilla:
-
-1. Copy test directory from `ref/mozilla-readability/test/test-pages/<name>/`
-2. Add test methods to `MozillaCompatibilityTests.swift`:
-   ```swift
-   @Test("<name> - Title matches expected")
-   func test<name>Title() async throws {
-       guard let testCase = TestLoader.loadTestCase(named: "<name>") else {
-           Issue.record("Failed to load test case")
-           return
-       }
-       let readability = try Readability(html: testCase.sourceHTML, options: defaultOptions)
-       let result = try readability.parse()
-       #expect(result.title == testCase.expectedMetadata.title)
-   }
-   ```
-3. Use `withKnownIssue()` for expected failures with clear documentation
-4. Update PLAN.md to mark test as imported
-
 ### Test Failure Response Protocol
 
 When a test fails:
@@ -319,64 +303,6 @@ When a test fails:
 5. If limitation: mark with `withKnownIssue()` and document
 6. If unsure: discuss before proceeding
 
-### Compatibility Debugging Playbook
-
-When working on `MozillaCompatibilityTests`, use this workflow to keep iterations small and verifiable:
-
-1. Reproduce with a single test first:
-   - `swift test --filter testLinksInTables`
-   - Only run full `MozillaCompatibilityTests` after the targeted case is stable.
-
-2. Diagnose structurally, not by string output:
-   - Capture the exact failing DOM path (`/html/body/...`) for both expected and actual nodes.
-   - Compare node type, tag, and attributes at that path before changing implementation.
-
-3. Identify mechanism-level root cause:
-   - Trace where the mismatched node/attribute is introduced (`setNodeTag`, wrapper insertion, sibling merge, post-cleaning, serialization).
-   - Avoid attribute-level patches unless the structural decision point is proven correct.
-
-4. Port Mozilla control flow before local heuristics:
-   - For `DIV -> P` behavior, keep Mozilla’s two-stage sequence:
-     - wrap consecutive phrasing fragments in `<p>`
-     - then apply `_hasSingleTagInsideElement("P")` + `linkDensity < 0.25` decision
-   - Validate with tests that are sensitive to table/link density behavior (e.g., `links-in-tables`).
-
-5. Keep temporary diagnostics if they improve future iterations:
-   - Enhanced diff output (attribute maps + node paths) is allowed in tests.
-   - Do not weaken assertions or relax matching rules.
-
-6. Verify no regression after each fix:
-   - Run the targeted test(s)
-   - Then run `swift test --filter MozillaCompatibilityTests`
-   - Track failure count deltas explicitly (e.g., `10 -> 9`).
-
-### Real-world Debugging Playbook (Stage 3-R)
-
-When working on `RealWorldCompatibilityTests`, use this workflow to keep scope controlled and outcomes verifiable:
-
-1. One iteration fixes one case only.
-   - Do not mix multiple failing real-world fixtures in one patch.
-   - If a shared change is needed, still validate and merge case-by-case.
-
-2. Keep fixes minimal and mechanism-driven.
-   - Prefer rule-level, deterministic changes.
-   - Prefer `SiteRules` for site-specific behavior; keep core logic generic unless behavior is clearly cross-site.
-
-3. Use three-level validation for every iteration:
-   - Targeted case test first (single fixture).
-   - Full `RealWorldCompatibilityTests` next (report remaining failures explicitly).
-   - Full `MozillaCompatibilityTests` as global safety gate.
-
-4. Regression handling policy:
-   - If a fix introduces unrelated regressions, rollback or narrow the rule before moving to the next case.
-   - Keep imported functional parity cases as high-sensitivity canaries.
-
-5. Status reporting format per iteration:
-   - Case fixed: `<case-name>`
-   - Full real-world delta: `<before> -> <after>` failures
-   - Mozilla gate: `pass/fail`
-   - Remaining case queue in priority order
-
 ---
 
 ## Quick Reference
@@ -384,7 +310,8 @@ When working on `RealWorldCompatibilityTests`, use this workflow to keep scope c
 ### Commands
 ```bash
 swift build && swift test
-cd CLI && swift run ReadabilityCLI <url> --text-only
+cd CLI && swift run ReadabilityCLI fetch <url> --name <case>
+cd CLI && swift run ReadabilityCLI inspect <case>
 ```
 
 ### Key Files
