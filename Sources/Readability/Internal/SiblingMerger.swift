@@ -4,13 +4,24 @@ import SwiftSoup
 /// Merges sibling content into the article content
 /// Implements Mozilla Readability.js sibling merging logic
 final class SiblingMerger {
+    private struct SiblingEvaluation {
+        let shouldAppend: Bool
+        let score: Double
+        let bonus: Double
+        let visible: Bool
+        let reason: String
+        let siteRuleDecisionID: String?
+    }
+
     private let options: ReadabilityOptions
     private let scoringManager: NodeScoringManager
+    private let inspectionContext: InspectionContext?
     private let preservedExtractedFigureClass = "copilot-preserve-figure"
 
-    init(options: ReadabilityOptions, scoringManager: NodeScoringManager) {
+    init(options: ReadabilityOptions, scoringManager: NodeScoringManager, inspectionContext: InspectionContext? = nil) {
         self.options = options
         self.scoringManager = scoringManager
+        self.inspectionContext = inspectionContext
     }
 
     // MARK: - Main Sibling Merging
@@ -53,10 +64,23 @@ final class SiblingMerger {
         var pendingPrepends: [Element] = []
 
         for sibling in siblings {
+            let siblingScore = scoringManager.getContentScore(for: sibling)
+            let contentBonus = siblingClassBonus(
+                for: sibling,
+                topCandidate: topCandidate,
+                topCandidateClassName: topCandidateClassName
+            )
+            let visible = DOMHelpers.isProbablyVisible(sibling)
+
             // Check if a site rule wants to extract a sub-element from this sibling.
             // Collect extracted elements — they will be prepended to the topCandidate's
             // clone rather than to the original element, so the source DOM stays intact.
-            if let extracted = try? SiteRuleRegistry.extractFromSibling(sibling, topCandidate: topCandidate) {
+            if let extraction = try SiteRuleRegistry.siblingExtraction(
+                sibling,
+                topCandidate: topCandidate,
+                inspectionContext: inspectionContext
+            ) {
+                let extracted = extraction.element
                 let extractedClasses = ((try? extracted.className()) ?? "")
                 let alteredExtracted: Element
                 if extracted.tagName().uppercased() == "FIGURE" && extractedClasses.contains(preservedExtractedFigureClass) {
@@ -73,18 +97,39 @@ final class SiblingMerger {
                 } else {
                     alteredExtracted = try alterToDivIfNeeded(extracted, in: doc)
                 }
+                inspectionContext?.recordSiblingDecision(
+                    sibling: sibling,
+                    score: siblingScore,
+                    bonus: contentBonus,
+                    threshold: siblingScoreThreshold,
+                    visible: visible,
+                    decision: "extract",
+                    reason: "site-rule-extract",
+                    siteRuleDecisionID: extraction.ruleID
+                )
                 pendingPrepends.append(alteredExtracted)
                 continue
             }
 
-            let shouldAppend = try shouldAppendSibling(
+            let evaluation = try evaluateSiblingDecision(
                 sibling,
                 topCandidate: topCandidate,
                 topCandidateClassName: topCandidateClassName,
                 threshold: siblingScoreThreshold
             )
 
-            if shouldAppend {
+            inspectionContext?.recordSiblingDecision(
+                sibling: sibling,
+                score: evaluation.score,
+                bonus: evaluation.bonus,
+                threshold: siblingScoreThreshold,
+                visible: evaluation.visible,
+                decision: evaluation.shouldAppend ? "append" : "skip",
+                reason: evaluation.reason,
+                siteRuleDecisionID: evaluation.siteRuleDecisionID
+            )
+
+            if evaluation.shouldAppend {
                 // Alter tag if needed (convert to DIV unless in exceptions)
                 let alteredSibling = try alterToDivIfNeeded(sibling, in: doc)
 
@@ -111,58 +156,110 @@ final class SiblingMerger {
     // MARK: - Sibling Append Decision
 
     /// Determine if a sibling should be appended to article content
-    private func shouldAppendSibling(
+    private func evaluateSiblingDecision(
         _ sibling: Element,
         topCandidate: Element,
         topCandidateClassName: String,
         threshold: Double
-    ) throws -> Bool {
+    ) throws -> SiblingEvaluation {
+        let siblingScore = scoringManager.getContentScore(for: sibling)
+        let contentBonus = siblingClassBonus(
+            for: sibling,
+            topCandidate: topCandidate,
+            topCandidateClassName: topCandidateClassName
+        )
+
         // Always append the top candidate itself
         if sibling === topCandidate {
-            return true
+            return SiblingEvaluation(
+                shouldAppend: true,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: true,
+                reason: "top-candidate",
+                siteRuleDecisionID: nil
+            )
         }
 
-        if !DOMHelpers.isProbablyVisible(sibling) {
-            return false
-        }
-
-        var contentBonus: Double = 0
-
-        // Give a bonus if sibling nodes and top candidates have the same class name
-        let siblingClassName = (try? sibling.className()) ?? ""
-        if !topCandidateClassName.isEmpty && siblingClassName == topCandidateClassName {
-            let topScore = scoringManager.getContentScore(for: topCandidate)
-            contentBonus += topScore * Configuration.siblingClassNameBonusRatio
+        let visible = DOMHelpers.isProbablyVisible(sibling)
+        if !visible {
+            return SiblingEvaluation(
+                shouldAppend: false,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: false,
+                reason: "invisible",
+                siteRuleDecisionID: nil
+            )
         }
 
         // Check if sibling has a score above threshold
-        let siblingScore = scoringManager.getContentScore(for: sibling)
         if siblingScore + contentBonus >= threshold {
-            return true
+            return SiblingEvaluation(
+                shouldAppend: true,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: true,
+                reason: "score-threshold",
+                siteRuleDecisionID: nil
+            )
         }
 
         // Special handling for P tags
         if sibling.tagName().uppercased() == "P" {
-            return try shouldAppendParagraph(sibling)
+            let paragraphReason = try paragraphDecisionReason(sibling)
+            return SiblingEvaluation(
+                shouldAppend: paragraphReason != nil,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: true,
+                reason: paragraphReason ?? "paragraph-rejected",
+                siteRuleDecisionID: nil
+            )
         }
 
         // Preserve trailing BR nodes that follow included content.
         if sibling.tagName().uppercased() == "BR" && (try? sibling.nextElementSibling()) == nil {
-            return true
+            return SiblingEvaluation(
+                shouldAppend: true,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: true,
+                reason: "trailing-br",
+                siteRuleDecisionID: nil
+            )
         }
 
         // Check site rules for explicit sibling inclusion (e.g. WordPress featured image).
-        if (try? SiteRuleRegistry.anySiblingInclusionRuleAllows(sibling, topCandidate: topCandidate)) == true {
-            return true
+        if let siteRuleDecision = try SiteRuleRegistry.siblingInclusionDecision(
+            sibling,
+            topCandidate: topCandidate,
+            inspectionContext: inspectionContext
+        ), siteRuleDecision.include {
+            return SiblingEvaluation(
+                shouldAppend: true,
+                score: siblingScore,
+                bonus: contentBonus,
+                visible: true,
+                reason: "site-rule-include",
+                siteRuleDecisionID: siteRuleDecision.ruleID
+            )
         }
 
-        return false
+        return SiblingEvaluation(
+            shouldAppend: false,
+            score: siblingScore,
+            bonus: contentBonus,
+            visible: true,
+            reason: "rejected",
+            siteRuleDecisionID: nil
+        )
     }
 
     // MARK: - Paragraph Special Handling
 
     /// Special handling for P tag siblings
-    private func shouldAppendParagraph(_ p: Element) throws -> Bool {
+    private func paragraphDecisionReason(_ p: Element) throws -> String? {
         let linkDensity = try scoringManager.getLinkDensity(for: p)
         let nodeContent = try p.text()
         let nodeLength = nodeContent.count
@@ -170,7 +267,7 @@ final class SiblingMerger {
         // Long paragraph with low link density
         if nodeLength > Configuration.paragraphLengthLong &&
            linkDensity < Configuration.linkDensityThresholdLong {
-            return true
+            return "paragraph-long-low-link-density"
         }
 
         // Short paragraph with no links and ends with period
@@ -178,10 +275,23 @@ final class SiblingMerger {
            nodeLength < Configuration.paragraphLengthLong &&
            linkDensity == 0 &&
            nodeContent.range(of: "\\.( |$)", options: .regularExpression) != nil {
-            return true
+            return "paragraph-short-terminal-period"
         }
 
-        return false
+        return nil
+    }
+
+    private func siblingClassBonus(
+        for sibling: Element,
+        topCandidate: Element,
+        topCandidateClassName: String
+    ) -> Double {
+        let siblingClassName = (try? sibling.className()) ?? ""
+        guard !topCandidateClassName.isEmpty, siblingClassName == topCandidateClassName else {
+            return 0
+        }
+        let topScore = scoringManager.getContentScore(for: topCandidate)
+        return topScore * Configuration.siblingClassNameBonusRatio
     }
 
     // MARK: - DIV Alteration

@@ -21,6 +21,7 @@ final class ContentExtractor {
     /// Represents a single extraction attempt
     struct ExtractionAttempt {
         let articleContent: Element
+        let selectedCandidate: Element
         let byline: String?
         let dir: String?
         let lang: String?
@@ -83,6 +84,11 @@ final class ContentExtractor {
 
             // Check if content is long enough
             let textLength = try attemptResult.content.text().count
+            inspectionContext?.recordContentSnapshot(
+                articleContent: attemptResult.content,
+                selectedCandidate: attemptResult.selectedCandidate,
+                contentLength: textLength
+            )
 
             if textLength >= options.charThreshold {
                 // Success!
@@ -101,6 +107,7 @@ final class ContentExtractor {
             inspectionContext?.endPass(contentLength: textLength, accepted: false)
             attempts.append(ExtractionAttempt(
                 articleContent: attemptResult.content,
+                selectedCandidate: attemptResult.selectedCandidate,
                 byline: articleByline ?? attemptResult.byline,
                 dir: attemptResult.dir,
                 lang: articleLang,
@@ -147,7 +154,7 @@ final class ContentExtractor {
     private func performExtraction(
         from body: Element,
         scoringManager: NodeScoringManager
-    ) throws -> (content: Element, byline: String?, neededToCreate: Bool, dir: String?) {
+    ) throws -> (content: Element, selectedCandidate: Element, byline: String?, neededToCreate: Bool, dir: String?) {
         let cleaner = NodeCleaner(
             options: options,
             shouldKeepBylineContainer: { [doc, sourceURL] node in
@@ -199,9 +206,14 @@ final class ContentExtractor {
             from: scoredElements,
             in: doc
         )
+        inspectionContext?.recordCandidateContext(candidate: topCandidate)
 
         // Phase 4: Merge siblings
-        let merger = SiblingMerger(options: options, scoringManager: scoringManager)
+        let merger = SiblingMerger(
+            options: options,
+            scoringManager: scoringManager,
+            inspectionContext: inspectionContext
+        )
         let articleContent = try merger.mergeSiblings(
             topCandidate: topCandidate,
             in: doc
@@ -209,7 +221,13 @@ final class ContentExtractor {
 
         let articleDir = extractArticleDirection(topCandidate: topCandidate)
 
-        return (content: articleContent, byline: articleByline, neededToCreate: neededToCreate, dir: articleDir)
+        return (
+            content: articleContent,
+            selectedCandidate: topCandidate,
+            byline: articleByline,
+            neededToCreate: neededToCreate,
+            dir: articleDir
+        )
     }
 
     private func extractDocumentLanguage() -> String? {

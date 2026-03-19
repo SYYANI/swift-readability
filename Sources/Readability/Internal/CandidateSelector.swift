@@ -217,7 +217,8 @@ final class CandidateSelector {
         let scoreThreshold = lastScore / 3
 
         inspectionContext?.recordPromotionStep(
-            descriptor: elementDescriptor(candidate),
+            descriptor: InspectionDOMHelpers.elementDescriptor(candidate),
+            path: InspectionDOMHelpers.nodePath(candidate),
             score: lastScore,
             action: "initial (threshold \u{2265} \(String(format: "%.3f", scoreThreshold)))"
         )
@@ -236,7 +237,8 @@ final class CandidateSelector {
             // If score is too low, stop
             if parentScore < scoreThreshold {
                 inspectionContext?.recordPromotionStep(
-                    descriptor: elementDescriptor(parent),
+                    descriptor: InspectionDOMHelpers.elementDescriptor(parent),
+                    path: InspectionDOMHelpers.nodePath(parent),
                     score: parentScore,
                     action: "below threshold, stopped"
                 )
@@ -247,14 +249,16 @@ final class CandidateSelector {
             if parentScore > lastScore {
                 if shouldKeepArticleCandidate(currentCandidate) {
                     inspectionContext?.recordPromotionStep(
-                        descriptor: elementDescriptor(parent),
+                        descriptor: InspectionDOMHelpers.elementDescriptor(parent),
+                        path: InspectionDOMHelpers.nodePath(parent),
                         score: parentScore,
                         action: "guard kept original"
                     )
                     break
                 }
                 inspectionContext?.recordPromotionStep(
-                    descriptor: elementDescriptor(parent),
+                    descriptor: InspectionDOMHelpers.elementDescriptor(parent),
+                    path: InspectionDOMHelpers.nodePath(parent),
                     score: parentScore,
                     action: "rose \u{2192} PROMOTED"
                 )
@@ -263,7 +267,8 @@ final class CandidateSelector {
             }
 
             inspectionContext?.recordPromotionStep(
-                descriptor: elementDescriptor(parent),
+                descriptor: InspectionDOMHelpers.elementDescriptor(parent),
+                path: InspectionDOMHelpers.nodePath(parent),
                 score: parentScore,
                 action: "fell, continue"
             )
@@ -518,29 +523,6 @@ final class CandidateSelector {
 
     // MARK: - Inspection Helpers
 
-    /// Concise CSS-like descriptor for inspection output, e.g. "div.entry-content" or "div#main".
-    private func elementDescriptor(_ element: Element) -> String {
-        let tag = element.tagName().lowercased()
-        let id = element.id()
-        let firstClass = ((try? element.className()) ?? "")
-            .split(separator: " ").first.map(String.init) ?? ""
-        var desc = tag
-        if !id.isEmpty {
-            desc += "#\(id)"
-        } else if !firstClass.isEmpty {
-            desc += ".\(firstClass)"
-        }
-        return desc
-    }
-
-    /// DOM depth: number of ancestor elements above this node.
-    private func elementDepth(_ element: Element) -> Int {
-        var depth = 0
-        var el: Element? = element.parent()
-        while let e = el { depth += 1; el = e.parent() }
-        return depth
-    }
-
     /// Build an `InspectionContext.RawCandidateInfo` snapshot for the given element.
     private func makeRawCandidateInfo(_ element: Element, flagWeightClasses: Bool) -> InspectionContext.RawCandidateInfo {
         let finalScore = scoringManager.getContentScore(for: element)
@@ -557,8 +539,9 @@ final class CandidateSelector {
             )
         }
         return InspectionContext.RawCandidateInfo(
-            descriptor: elementDescriptor(element),
-            depth: elementDepth(element),
+            descriptor: InspectionDOMHelpers.elementDescriptor(element),
+            path: InspectionDOMHelpers.nodePath(element),
+            depth: InspectionDOMHelpers.elementDepth(element),
             finalScore: finalScore,
             baseScore: base,
             classWeightTotal: classWeight,

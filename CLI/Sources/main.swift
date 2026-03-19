@@ -551,6 +551,7 @@ struct Inspect: AsyncParsableCommand {
             }
             lines.append(String(format: "  #%-2d  %@  depth=%d  score=%.3f%@",
                                 idx + 1, candidate.descriptor as CVarArg, candidate.depth, candidate.score, annotation as CVarArg))
+            lines.append("        path=\(candidate.path)")
             let weightNote: String
             if focusPass.activeFlags.contains("WEIGHT") {
                 weightNote = String(format: "%.1f", candidate.classWeightTotal)
@@ -567,7 +568,77 @@ struct Inspect: AsyncParsableCommand {
             lines.append("Promotion trace:")
             for step in focusPass.promotionTrace {
                 lines.append("  \(step.descriptor.padding(toLength: 45, withPad: " ", startingAt: 0))  score=\(String(format: "%7.3f", step.score))  \(step.action)")
+                lines.append("    path=\(step.path)")
             }
+        }
+
+        if let context = focusPass.candidateContext {
+            lines.append("")
+            lines.append("Candidate context:")
+            lines.append("  candidate: \(context.candidateDescriptor) @ \(context.candidatePath)")
+            if let parentDescriptor = context.parentDescriptor,
+               let parentPath = context.parentPath {
+                lines.append("  parent:    \(parentDescriptor) @ \(parentPath)")
+            }
+            if !context.ancestorChain.isEmpty {
+                lines.append("  ancestors:")
+                for ancestor in context.ancestorChain.prefix(6) {
+                    lines.append("    - \(ancestor)")
+                }
+            }
+            if !context.siblingDescriptors.isEmpty {
+                lines.append("  siblings:")
+                for sibling in context.siblingDescriptors.prefix(12) {
+                    lines.append("    - \(sibling)")
+                }
+            }
+        }
+
+        if !focusPass.siblingDecisions.isEmpty {
+            lines.append("")
+            lines.append("Sibling merge trace:")
+            for decision in focusPass.siblingDecisions {
+                let visibility = decision.visible ? "visible" : "hidden"
+                let paddedDecision = decision.decision.padding(toLength: 7, withPad: " ", startingAt: 0)
+                let scoreText = String(format: "%6.3f", decision.score)
+                let bonusText = String(format: "%6.3f", decision.bonus)
+                let thresholdText = String(format: "%6.3f", decision.threshold)
+                var line = "  [\(paddedDecision)] \(decision.descriptor)"
+                line += "  score=\(scoreText)"
+                line += "  bonus=\(bonusText)"
+                line += "  threshold=\(thresholdText)"
+                line += "  \(visibility)  reason=\(decision.reason)"
+                if let ruleID = decision.siteRuleDecisionID {
+                    line += "  rule=\(ruleID)"
+                }
+                lines.append(line)
+                lines.append("        path=\(decision.path)")
+            }
+        }
+
+        if !focusPass.siteRuleDecisions.isEmpty {
+            lines.append("")
+            lines.append("Site rule trace:")
+            for decision in focusPass.siteRuleDecisions {
+                var line = "  [\(decision.phase)] \(decision.ruleID)  action=\(decision.action)  target=\(decision.targetDescriptor) @ \(decision.targetPath)"
+                if let resultDescriptor = decision.resultDescriptor,
+                   let resultPath = decision.resultPath {
+                    line += "  →  \(resultDescriptor) @ \(resultPath)"
+                } else if let resultDescriptor = decision.resultDescriptor {
+                    line += "  →  \(resultDescriptor)"
+                }
+                line += "  reason=\(decision.reason)"
+                lines.append(line)
+            }
+        }
+
+        if let snapshot = focusPass.contentSnapshot {
+            lines.append("")
+            lines.append("Content snapshot:")
+            lines.append("  selected: \(snapshot.selectedCandidateDescriptor) @ \(snapshot.selectedCandidatePath)")
+            lines.append("  content-length: \(snapshot.contentLength)")
+            lines.append("  article-children: \(snapshot.articleChildDescriptors.joined(separator: ", "))")
+            lines.append("  leading-blocks: \(snapshot.leadingBlockDescriptors.joined(separator: ", "))")
         }
 
         // --- Class weight reference (passes where WEIGHT was active) ---

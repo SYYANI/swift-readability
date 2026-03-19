@@ -2,6 +2,16 @@ import Foundation
 import SwiftSoup
 
 enum SiteRuleRegistry {
+    struct SiblingInclusionDecision {
+        let ruleID: String
+        let include: Bool
+    }
+
+    struct SiblingExtractionResult {
+        let ruleID: String
+        let element: Element
+    }
+
     static func applyArticleCleanerRules(
         _ rules: [ArticleCleanerSiteRule.Type],
         to articleContent: Element,
@@ -106,34 +116,51 @@ enum SiteRuleRegistry {
         try applyArticleCleanerRules(rules, to: articleContent, context: context)
     }
 
-    /// Returns true if any site rule explicitly allows the sibling to be included.
-    static func anySiblingInclusionRuleAllows(
+    /// Returns the explicit sibling inclusion decision, if any site rule produced one.
+    static func siblingInclusionDecision(
         _ sibling: Element,
-        topCandidate: Element
-    ) throws -> Bool {
+        topCandidate: Element,
+        inspectionContext: InspectionContext? = nil
+    ) throws -> SiblingInclusionDecision? {
         let rules: [SiblingInclusionSiteRule.Type] = [
             WordPressFeaturedImageRule.self
         ]
         for rule in rules {
             if let decision = try rule.shouldIncludeSibling(sibling, topCandidate: topCandidate) {
-                return decision
+                inspectionContext?.recordSiteRuleDecision(
+                    phase: "sibling-include",
+                    ruleID: rule.id,
+                    target: sibling,
+                    action: decision ? "include" : "exclude",
+                    reason: "explicit-decision"
+                )
+                return SiblingInclusionDecision(ruleID: rule.id, include: decision)
             }
         }
-        return false
+        return nil
     }
 
     /// Returns an extracted sub-element from the sibling if any site rule wants to extract one.
     /// When non-nil is returned, the caller should append the returned element and skip the original sibling.
-    static func extractFromSibling(
+    static func siblingExtraction(
         _ sibling: Element,
-        topCandidate: Element
-    ) throws -> Element? {
+        topCandidate: Element,
+        inspectionContext: InspectionContext? = nil
+    ) throws -> SiblingExtractionResult? {
         let rules: [SiblingExtractSiteRule.Type] = [
             WordPressFeaturedImageExtractRule.self
         ]
         for rule in rules {
             if let extracted = try rule.extractFromSibling(sibling, topCandidate: topCandidate) {
-                return extracted
+                inspectionContext?.recordSiteRuleDecision(
+                    phase: "sibling-extract",
+                    ruleID: rule.id,
+                    target: sibling,
+                    action: "extract",
+                    result: extracted,
+                    reason: "sub-element-extracted"
+                )
+                return SiblingExtractionResult(ruleID: rule.id, element: extracted)
             }
         }
         return nil

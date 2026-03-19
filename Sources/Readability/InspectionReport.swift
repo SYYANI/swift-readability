@@ -28,6 +28,8 @@ public struct InspectionReport: Sendable {
     public struct CandidateInfo: Sendable {
         /// CSS-like descriptor, e.g. "div.entry-content" or "div#main".
         public let descriptor: String
+        /// DOM path for this element.
+        public let path: String
         /// DOM depth: number of ancestor elements above this node.
         public let depth: Int
         /// Final content score (after link-density scaling).
@@ -46,10 +48,58 @@ public struct InspectionReport: Sendable {
     public struct PromotionStep: Sendable {
         /// CSS-like descriptor of the element checked at this step.
         public let descriptor: String
+        /// DOM path for this element.
+        public let path: String
         /// Content score of this element.
         public let score: Double
         /// Human-readable outcome, e.g. "initial winner", "fell, continue", "rose → PROMOTED".
         public let action: String
+    }
+
+    /// Summary of the selected candidate's immediate DOM context.
+    public struct CandidateContext: Sendable {
+        public let candidateDescriptor: String
+        public let candidatePath: String
+        public let parentDescriptor: String?
+        public let parentPath: String?
+        public let ancestorChain: [String]
+        public let siblingDescriptors: [String]
+    }
+
+    /// One explicit sibling-merge decision recorded during content assembly.
+    public struct SiblingDecision: Sendable {
+        public let descriptor: String
+        public let path: String
+        public let tagName: String
+        public let className: String
+        public let score: Double
+        public let bonus: Double
+        public let threshold: Double
+        public let visible: Bool
+        public let decision: String
+        public let reason: String
+        public let siteRuleDecisionID: String?
+    }
+
+    /// One explicit site-rule decision recorded during extraction.
+    public struct SiteRuleDecision: Sendable {
+        public let phase: String
+        public let ruleID: String
+        public let targetDescriptor: String
+        public let targetPath: String
+        public let action: String
+        public let resultDescriptor: String?
+        public let resultPath: String?
+        public let reason: String
+    }
+
+    /// Compact summary of the merged article content produced by one pass.
+    public struct ContentSnapshotSummary: Sendable {
+        public let selectedCandidateDescriptor: String
+        public let selectedCandidatePath: String
+        public let articleChildDescriptors: [String]
+        public let leadingBlockDescriptors: [String]
+        public let contentLength: Int
     }
 
     /// Data captured during one complete pass of the multi-pass extraction loop.
@@ -66,6 +116,14 @@ public struct InspectionReport: Sendable {
         public let promotionTrace: [PromotionStep]
         /// Candidate actually selected after all promotion passes completed.
         public let finalCandidate: CandidateInfo?
+        /// Candidate ancestry and sibling context for the selected candidate.
+        public let candidateContext: CandidateContext?
+        /// Explicit sibling decisions recorded while assembling article content.
+        public let siblingDecisions: [SiblingDecision]
+        /// Explicit site-rule decisions recorded during extraction.
+        public let siteRuleDecisions: [SiteRuleDecision]
+        /// Compact content-shape summary for this pass.
+        public let contentSnapshot: ContentSnapshotSummary?
         /// Character count of extracted text content for this attempt.
         public let contentLength: Int
         /// The configured `charThreshold` for comparison.
