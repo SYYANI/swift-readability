@@ -10,11 +10,8 @@ This document contains **principles, coding standards, and development guideline
 
 ### 1. Language Policy
 
-**All documentation and code comments must be in English**, except:
-- `INIT.md` (project planning document in Chinese)
-- User-facing documentation (can be multilingual)
-
-**Rationale**: This is an open-source project that may be used globally. English ensures accessibility for all contributors.
+- Communicate with the user in Chinese.
+- Write code comments and repository documentation in English unless explicitly requested otherwise.
 
 ### 2. Documentation Style
 
