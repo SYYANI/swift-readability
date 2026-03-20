@@ -114,4 +114,47 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: antirez-1 · Coding with LLMs in the summer of 2025 (an update) (antirez.com)
+
+    @Test("antirez-1 - Title matches expected")
+    func testAntirez1Title() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez-1'")
+            return
+        }
+        let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("antirez-1 - Byline matches expected")
+    func testAntirez1Byline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez-1'")
+            return
+        }
+        let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("antirez-1 - Excerpt matches expected")
+    func testAntirez1Excerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez-1'")
+            return
+        }
+        let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("antirez-1 - Content matches expected HTML")
+    func testAntirez1Content() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez-1'")
+            return
+        }
+        let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }

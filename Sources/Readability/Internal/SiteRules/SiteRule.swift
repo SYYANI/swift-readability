@@ -47,6 +47,10 @@ protocol MetadataBylineSiteRule: SiteRule {
     static func apply(currentByline: String?, sourceURL: URL?, document: Document) throws -> String?
 }
 
+protocol ExcerptSiteRule: SiteRule {
+    static func apply(currentExcerpt: String?, articleContent: Element, sourceURL: URL?, document: Document) throws -> String?
+}
+
 protocol CandidatePromotionSiteRule: SiteRule {
     static func promotedCandidate(from candidate: Element) -> Element?
 }

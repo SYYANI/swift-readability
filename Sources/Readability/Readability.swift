@@ -79,7 +79,13 @@ public struct Readability {
         if let metaExcerpt = metadata.excerpt {
             excerpt = metaExcerpt
         } else {
-            excerpt = try extractExcerpt(from: articleContent)
+            let extractedExcerpt = try extractExcerpt(from: articleContent)
+            excerpt = try SiteRuleRegistry.applyExcerptRules(
+                extractedExcerpt,
+                articleContent: articleContent,
+                sourceURL: sourceURL,
+                document: doc
+            )
         }
 
         // Keep Mozilla-compatible page wrapper shape under the article container.
@@ -829,6 +835,7 @@ public struct Readability {
                 return text
             }
         }
+
         return nil
     }
 

@@ -69,11 +69,33 @@ enum SiteRuleRegistry {
         document: Document
     ) throws -> String? {
         let rules: [MetadataBylineSiteRule.Type] = [
+            AntirezBylineRule.self,
             FirefoxNightlyBylineRule.self
         ]
         var current = byline
         for rule in rules {
             current = try rule.apply(currentByline: current, sourceURL: sourceURL, document: document)
+        }
+        return current
+    }
+
+    static func applyExcerptRules(
+        _ excerpt: String?,
+        articleContent: Element,
+        sourceURL: URL?,
+        document: Document
+    ) throws -> String? {
+        let rules: [ExcerptSiteRule.Type] = [
+            AntirezExcerptRule.self
+        ]
+        var current = excerpt
+        for rule in rules {
+            current = try rule.apply(
+                currentExcerpt: current,
+                articleContent: articleContent,
+                sourceURL: sourceURL,
+                document: document
+            )
         }
         return current
     }
@@ -139,6 +161,8 @@ enum SiteRuleRegistry {
         switch phase {
         case .unwantedElements:
             return [
+                AntirezDisqusFooterRule.self,
+                AntirezLeadingInfoRule.self,
                 WashingtonPostGalleryEmbedRule.self,
                 YahooSlideshowModalRule.self,
                 YahooBreakingNewsModuleRule.self,
