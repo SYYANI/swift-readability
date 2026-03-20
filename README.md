@@ -23,6 +23,13 @@ dependencies: [
 public struct Readability {
     public init(html: String, baseURL: URL? = nil, options: ReadabilityOptions = .default) throws
     public func parse() throws -> ReadabilityResult
+  public func parseWithInspection() throws -> (result: ReadabilityResult, report: InspectionReport)
+}
+```
+
+```swift
+public struct InspectionReport: Sendable {
+  public let passes: [PassAttempt]
 }
 ```
 
@@ -58,6 +65,23 @@ print(result.textContent)
 ```
 
 `Readability` is single-use. Calling `parse()` twice on the same instance throws `ReadabilityError.alreadyParsed`.
+
+## Diagnostics
+
+Use `parseWithInspection()` when you need extraction diagnostics instead of just the final article result.
+
+```swift
+import Foundation
+import Readability
+
+let parser = try Readability(html: html, baseURL: baseURL)
+let (result, report) = try parser.parseWithInspection()
+
+print(result.title)
+print(report.passes.count)
+```
+
+`InspectionReport` captures the multi-pass extraction trace, including candidate scoring, promotion decisions, sibling inclusion decisions, and site-rule decisions. This API is intended for debugging and calibration workflows such as the `ReadabilityCLI inspect` command.
 
 ## Options
 
@@ -100,6 +124,7 @@ do {
 ## Compatibility Scope
 
 This project tracks Mozilla parity with strict fixture-based tests:
+- `ExPagesCompatibilityTests`
 - `MozillaCompatibilityTests`
 - `RealWorldCompatibilityTests`
 
@@ -107,14 +132,15 @@ Current imported suites are passing in this repository state.
 
 ## Performance and Benchmarking
 
-Use `CLI` as benchmark entry point:
-- `./CLI/README.md`
-- `./CLI/Benchmark/README.md`
+Use [CLI/README.md](CLI/README.md) for staged-case capture, inspection, review, and promotion into the incremental `ex-pages` baseline.
+
+This repository does not currently ship a committed benchmark guide under `CLI/Benchmark/`. If you maintain an external benchmark workflow for release validation, record the resulting artifacts alongside the release notes.
 
 ## Known Limitations
 
 - Parsing quality depends on source HTML quality; heavily script-dependent pages may not have enough static content.
 - Some site-specific cleanup is handled via `SiteRules`; behavior is fixture-driven to reduce broad regressions.
+- Some site-specific metadata and excerpt recovery is also handled via `SiteRules` when a site uses stable non-Mozilla structures.
 - Two `ReadabilityOptions` fields are reserved/deferred (`maxElemsToParse`, `useCustomSerializer`).
 
 ## Troubleshooting
@@ -127,7 +153,7 @@ Use `CLI` as benchmark entry point:
 - Output contains unwanted classes:
   - Set `keepClasses = false` and only whitelist required classes with `classesToPreserve`.
 - Result mismatch against fixtures:
-  - Run `swift test --filter MozillaCompatibilityTests` first, then `RealWorldCompatibilityTests`.
+  - Run `swift test --filter ExPagesCompatibilityTests` first, then `RealWorldCompatibilityTests`, then `MozillaCompatibilityTests`.
 
 ## License
 
