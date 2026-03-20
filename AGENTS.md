@@ -59,6 +59,7 @@ This is what "porting" means. We are creating a Swift version that produces **id
 - When in doubt, copy Mozilla's implementation exactly
 - If we MUST deviate, document why in code comments
 - Improvements should be opt-in via `ReadabilityOptions`, never default behavior
+- If downstream integration requires stable serialization hints, keep them narrow, explicit, and documented as an output contract instead of changing generic extraction semantics
 
 **Examples:**
 - WRONG: Custom title cleaning that removes all separators
@@ -184,6 +185,13 @@ Current mechanism:
   - share/social cleanup
   - serialization cleanup
 
+Serialization compatibility contract:
+1. If a site-specific serialization rule must annotate a `<pre>` block for downstream consumers, use `data-readability-pre-type`.
+2. Allowed stable values are `markdown`, `code`, and `text`.
+3. Omit the attribute when default `<pre>` behavior is desired.
+4. Do not repurpose unrelated ad-hoc attributes for `<pre>` semantics.
+5. Any intentional Mozilla-parity deviation that introduces this attribute must be documented in `README.md`, fixture expectations, and release notes/changelog.
+
 Authoring rules:
 1. Keep each rule focused on one site/mechanism (small selector surface).
 2. Use deterministic selectors/thresholds; avoid broad global heuristics in site rules.
@@ -243,6 +251,7 @@ Validation requirements for any new/modified site rule:
 2. Run full `RealWorldCompatibilityTests`.
 3. Run full `MozillaCompatibilityTests`.
 4. If behavior intentionally deviates from Mozilla parity, document rationale near the rule and in planning docs.
+5. If the rule adds serialized compatibility attributes, document the exact contract and downstream expectation.
 
 ---
 

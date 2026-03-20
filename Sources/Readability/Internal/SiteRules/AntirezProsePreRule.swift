@@ -1,14 +1,14 @@
 import Foundation
 import SwiftSoup
 
-/// Marks antirez article-body `<pre>` blocks as prose so renderers can soft-wrap them.
+/// Marks antirez article-body `<pre>` blocks as Markdown source for downstream renderers.
 ///
 /// SiteRule Metadata:
-/// - Scope: antirez article prose preformatted body
+/// - Scope: antirez article markdown preformatted body
 /// - Phase: `serialization` cleanup
 /// - Trigger: antirez document with top-level `article[data-comment-id] > pre` body block
-/// - Evidence: `ex-pages/antirez-1`
-/// - Risk if misplaced: code examples on unrelated pages could be mislabeled as prose
+/// - Evidence: `ex-pages/antirez`
+/// - Risk if misplaced: code examples on unrelated pages could be mislabeled as Markdown source
 enum AntirezProsePreRule: SerializationSiteRule {
     static let id = "antirez-prose-pre"
 
@@ -36,7 +36,7 @@ enum AntirezProsePreRule: SerializationSiteRule {
                 continue
             }
 
-            try pre.attr("data-readability-prose-pre", "true")
+            try pre.attr("data-readability-pre-type", "markdown")
         }
     }
 

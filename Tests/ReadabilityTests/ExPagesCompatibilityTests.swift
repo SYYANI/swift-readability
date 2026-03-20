@@ -115,42 +115,42 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
-    // MARK: antirez-1 · Coding with LLMs in the summer of 2025 (an update) (antirez.com)
+    // MARK: antirez · Coding with LLMs in the summer of 2025 (an update) (antirez.com)
 
-    @Test("antirez-1 - Title matches expected")
-    func testAntirez1Title() async throws {
-        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
-            Issue.record("Failed to load test case 'antirez-1'")
+    @Test("antirez - Title matches expected")
+    func testAntirezTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez'")
             return
         }
         let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
         #expect(result.title == testCase.expectedMetadata.title)
     }
 
-    @Test("antirez-1 - Byline matches expected")
-    func testAntirez1Byline() async throws {
-        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
-            Issue.record("Failed to load test case 'antirez-1'")
+    @Test("antirez - Byline matches expected")
+    func testAntirezByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez'")
             return
         }
         let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
         #expect(result.byline == testCase.expectedMetadata.byline)
     }
 
-    @Test("antirez-1 - Excerpt matches expected")
-    func testAntirez1Excerpt() async throws {
-        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
-            Issue.record("Failed to load test case 'antirez-1'")
+    @Test("antirez - Excerpt matches expected")
+    func testAntirezExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez'")
             return
         }
         let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()
         #expect(result.excerpt == testCase.expectedMetadata.excerpt)
     }
 
-    @Test("antirez-1 - Content matches expected HTML")
-    func testAntirez1Content() async throws {
-        guard let testCase = TestLoader.loadTestCase(named: "antirez-1", in: "ex-pages") else {
-            Issue.record("Failed to load test case 'antirez-1'")
+    @Test("antirez - Content matches expected HTML")
+    func testAntirezContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "antirez", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'antirez'")
             return
         }
         let result = try Readability(html: testCase.sourceHTML, options: defaultOptions).parse()

@@ -130,6 +130,19 @@ This project tracks Mozilla parity with strict fixture-based tests:
 
 Current imported suites are passing in this repository state.
 
+## HTML Output Contract
+
+The default goal of this library is Mozilla Readability output parity. However, the serialized HTML may include narrowly-scoped compatibility attributes when a site-specific structure cannot be represented safely by generic HTML semantics alone.
+
+Current stable `<pre>` contract:
+- `data-readability-pre-type="markdown"`: the `<pre>` text is Markdown source and downstream HTML-to-Markdown converters may emit the raw text directly instead of wrapping it in a fenced code block.
+- `data-readability-pre-type="code"`: the `<pre>` is explicitly a code block and downstream converters should keep fenced-code behavior.
+- `data-readability-pre-type="text"`: the `<pre>` is plain preformatted text. Downstream handling may continue to use fenced-code fallback until a better plain-text rendering path is defined.
+- No `data-readability-pre-type`: preserve existing default handling for ordinary `<pre>` blocks.
+
+Current usage:
+- `antirez` emits `data-readability-pre-type="markdown"` on the extracted article-body `<pre>` because the source block contains Markdown prose rather than code.
+
 ## Performance and Benchmarking
 
 Use [CLI/README.md](CLI/README.md) for staged-case capture, inspection, review, and promotion into the incremental `ex-pages` baseline.
