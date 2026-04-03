@@ -13,6 +13,8 @@ enum CNETPlaylistOverlayRule: ArticleCleanerSiteRule {
     static let id = "cnet-playlist-overlay"
 
     static func apply(to articleContent: Element, context _: ArticleCleanerSiteRuleContext) throws {
+        guard isCNETArticleContent(articleContent) else { return }
+
         try articleContent.select("div.playlist.overlay").remove()
         try articleContent.select("div[data-load-playlist] .playlist, div[data-load-playlist] .playlist-more, div[data-load-playlist] ul").remove()
         try articleContent.select("div[data-item-id][data-item-syndicated], [id*=taboola], [class*=taboola]").remove()
@@ -40,5 +42,30 @@ enum CNETPlaylistOverlayRule: ArticleCleanerSiteRule {
                 try block.remove()
             }
         }
+    }
+
+    private static func isCNETArticleContent(_ articleContent: Element) -> Bool {
+        let subtreeSignals = (try? articleContent.select(
+            "div.playlist.overlay, div[data-load-playlist], [id*=taboola], [class*=taboola], div[data-container-asset-id][data-page-options]"
+        ).isEmpty()) == false
+        if subtreeSignals {
+            return true
+        }
+
+        guard let document = articleContent.ownerDocument() else { return false }
+
+        let siteName = ((try? document.select("meta[property=og:site_name]").first()?.attr("content")) ?? "")
+            .lowercased()
+        if siteName == "cnet" {
+            return true
+        }
+
+        let canonical = ((try? document.select("link[rel=canonical]").first()?.attr("href")) ?? "")
+            .lowercased()
+        if canonical.contains("cnet.com") {
+            return true
+        }
+
+        return document.location().lowercased().contains("cnet.com")
     }
 }

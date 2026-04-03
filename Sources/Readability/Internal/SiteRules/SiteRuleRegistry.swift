@@ -106,7 +106,8 @@ enum SiteRuleRegistry {
             QuantaLeadCandidatePromotionRule.self,
             BreitbartArticleCandidatePromotionRule.self,
             FirefoxNightlyContainerCandidatePromotionRule.self,
-            CityLabArticleContainerCandidateRule.self
+            CityLabArticleContainerCandidateRule.self,
+            SimonWillisonBeatCandidatePromotionRule.self
         ]
         for rule in rules {
             if let promoted = rule.promotedCandidate(from: candidate) {

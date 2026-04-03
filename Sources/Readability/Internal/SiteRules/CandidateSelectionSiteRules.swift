@@ -163,3 +163,40 @@ enum CityLabArticleContainerCandidateRule: CandidatePromotionSiteRule, Candidate
         return false
     }
 }
+
+enum SimonWillisonBeatCandidatePromotionRule: CandidatePromotionSiteRule {
+    static let id = "simonwillison-beat-candidate"
+
+    static func promotedCandidate(from candidate: Element) -> Element? {
+        guard let document = candidate.ownerDocument(),
+              isSimonWillisonBeatDocument(document),
+              let beat = try? document.select("div.entry.entryPage > div.beat").first() else {
+            return nil
+        }
+
+        if candidate === beat {
+            return beat
+        }
+
+        if candidate.ancestors().contains(where: { $0 === beat }) {
+            return beat
+        }
+
+        return beat
+    }
+
+    private static func isSimonWillisonBeatDocument(_ document: Document) -> Bool {
+        let canonical = ((try? document.select("link[rel=canonical]").first()?.attr("href")) ?? "")
+            .lowercased()
+        let siteName = ((try? document.select("meta[property=og:site_name]").first()?.attr("content")) ?? "")
+            .lowercased()
+
+        let isSimonWillisonHost =
+            canonical.contains("simonwillison.net") ||
+            siteName.contains("simon willison")
+
+        guard isSimonWillisonHost else { return false }
+
+        return (try? document.select("div.entry.entryPage > div.beat > div.beat-content").isEmpty()) == false
+    }
+}

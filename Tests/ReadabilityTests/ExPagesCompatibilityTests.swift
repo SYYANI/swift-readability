@@ -413,4 +413,47 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: simonwillison-4 · Release: llm-gemini 0.30 (simonwillison.net)
+
+    @Test("simonwillison-4 - Title matches expected")
+    func testSimonwillison4Title() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "simonwillison-4", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'simonwillison-4'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("simonwillison-4 - Byline matches expected")
+    func testSimonwillison4Byline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "simonwillison-4", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'simonwillison-4'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("simonwillison-4 - Excerpt matches expected")
+    func testSimonwillison4Excerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "simonwillison-4", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'simonwillison-4'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("simonwillison-4 - Content matches expected HTML")
+    func testSimonwillison4Content() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "simonwillison-4", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'simonwillison-4'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }
