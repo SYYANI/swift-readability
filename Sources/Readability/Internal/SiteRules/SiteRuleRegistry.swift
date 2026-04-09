@@ -219,7 +219,9 @@ enum SiteRuleRegistry {
                 TheVergeZoomWrapperAccessibilityRule.self,
                 LiberationArticleBodyWrapperRule.self,
                 WordPressPrevNextNavigationRule.self,
+                JohnDCookRelatedPostsRule.self,
                 MercurialExampleSectionRule.self,
+                SimonWillisonRecentArticlesRule.self,
                 WikipediaHermitianListPruneRule.self,
                 EbbPreviousLinkRule.self
             ]
