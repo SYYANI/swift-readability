@@ -183,6 +183,7 @@ enum SiteRuleRegistry {
                 MedicalNewsTodayRelatedInlineRule.self,
                 CNETPlaylistOverlayRule.self,
                 CityLabPromoSignupRule.self,
+                BerthubNavigationChromeRule.self,
                 EngadgetSlideshowIconRule.self,
                 WikipediaLeadMetaNoiseRule.self,
                 FirefoxNightlyCommentFormRule.self,

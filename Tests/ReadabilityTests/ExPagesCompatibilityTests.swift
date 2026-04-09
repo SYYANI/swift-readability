@@ -456,4 +456,67 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: berthub · Rapport digitale autonomie binnen de energie-intensieve industrie voor Energy Innovation Nl (berthub.eu)
+
+    @Test("berthub - Title matches expected")
+    func testBerthubTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("berthub - Byline matches expected")
+    func testBerthubByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("berthub - Excerpt matches expected")
+    func testBerthubExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("berthub - Site name matches expected")
+    func testBerthubSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("berthub - Published time matches expected")
+    func testBerthubPublishedTime() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.publishedTime == testCase.expectedMetadata.publishedTime)
+    }
+
+    @Test("berthub - Content matches expected HTML")
+    func testBerthubContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "berthub", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'berthub'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }
