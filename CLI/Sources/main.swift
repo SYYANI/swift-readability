@@ -12,6 +12,22 @@ private struct StagedCaseMetadata: Decodable {
     let fetchedAt: String?
 }
 
+private func metadataJSONObject(from result: ReadabilityResult, includeLength: Bool) -> [String: Any] {
+    var json: [String: Any] = [
+        "title": result.title,
+        "byline": result.byline ?? NSNull(),
+        "dir": result.dir ?? NSNull(),
+        "lang": result.lang ?? NSNull(),
+        "excerpt": result.excerpt ?? NSNull(),
+        "siteName": result.siteName ?? NSNull(),
+        "publishedTime": result.publishedTime ?? NSNull()
+    ]
+    if includeLength {
+        json["length"] = result.length
+    }
+    return json
+}
+
 // MARK: - Entry point
 
 @main
@@ -192,14 +208,23 @@ struct Parse: AsyncParsableCommand {
             to: dest.appendingPathComponent("swift-out.html"),
             atomically: true, encoding: .utf8)
 
-        var swiftMeta: [String: Any] = ["title": result.title, "length": result.length]
-        if let v = result.byline  { swiftMeta["byline"]  = v }
-        if let v = result.excerpt { swiftMeta["excerpt"] = v }
-        let swiftMetaData = try JSONSerialization.data(withJSONObject: swiftMeta, options: .prettyPrinted)
+        let swiftMeta = metadataJSONObject(from: result, includeLength: true)
+        let swiftMetaData = try JSONSerialization.data(
+            withJSONObject: swiftMeta,
+            options: [.prettyPrinted, .sortedKeys]
+        )
         try swiftMetaData.write(to: dest.appendingPathComponent("swift-result.json"))
+
+        let swiftExpectedMeta = metadataJSONObject(from: result, includeLength: false)
+        let swiftExpectedMetaData = try JSONSerialization.data(
+            withJSONObject: swiftExpectedMeta,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try swiftExpectedMetaData.write(to: dest.appendingPathComponent("swift-expected-metadata.json"))
 
         print("  swift-out.html")
         print("  swift-result.json")
+        print("  swift-expected-metadata.json")
 
         // Mozilla Readability.js
         guard let runtime = detectJSRuntime() else {
@@ -207,7 +232,11 @@ struct Parse: AsyncParsableCommand {
             printErr("Note: node not found on $PATH. Mozilla comparison skipped.")
             printErr("Install Node.js and re-run 'parse \(caseName)'.")
             printErr("(The bridge script uses CJS + jsdom and requires Node.js.)")
-            print("Next:  swift run ReadabilityCLI commit \(caseName)")
+            print("Prepare expected.* from the Swift outputs, edit to the intended target state, then commit:")
+            print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
+            print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+            print("  (edit expected.html / expected-metadata.json as needed)")
+            print("  swift run ReadabilityCLI commit \(caseName)")
             return
         }
 
@@ -264,7 +293,11 @@ struct Parse: AsyncParsableCommand {
             print("  mozilla-result.json  (Mozilla returned null)")
             print("")
             printErr("Note: Mozilla Readability.js returned null for this page. Swift output was still generated.")
-            print("Next:  swift run ReadabilityCLI review \(caseName)")
+            print("Prepare expected.* from the Swift outputs, edit to the intended target state, then commit:")
+            print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
+            print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+            print("  (edit expected.html / expected-metadata.json as needed)")
+            print("  swift run ReadabilityCLI commit \(caseName)")
             return
         }
 
@@ -296,10 +329,10 @@ struct Parse: AsyncParsableCommand {
         print("  mozilla-result.json")
         print("  draft-expected-metadata.json")
         print("")
-        print("Review, then promote to expected.*:")
-        print("  cp .staging/\(caseName)/mozilla-out.html .staging/\(caseName)/expected.html")
-        print("  cp .staging/\(caseName)/draft-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
-        print("  (edit as needed)")
+        print("Review Swift and Mozilla outputs, then prepare expected.* from the Swift outputs:")
+        print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
+        print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+        print("  (edit expected.html / expected-metadata.json as needed to reach the intended target state)")
         print("  swift run ReadabilityCLI commit \(caseName)")
     }
 }
@@ -478,10 +511,10 @@ struct Commit: AsyncParsableCommand {
             throw ValidationError("source.html is missing from staging.")
         }
         guard fm.fileExists(atPath: expectedHTML.path) else {
-            throw ValidationError("expected.html not found. Copy mozilla-out.html and rename it expected.html.")
+            throw ValidationError("expected.html not found. Copy a reviewed staged HTML output (usually swift-out.html) and rename it expected.html.")
         }
         guard fm.fileExists(atPath: expectedMeta.path) else {
-            throw ValidationError("expected-metadata.json not found. Copy draft-expected-metadata.json and rename it.")
+            throw ValidationError("expected-metadata.json not found. Copy a reviewed staged metadata template (usually swift-expected-metadata.json) and rename it.")
         }
 
         // Destination: ../Tests/ReadabilityTests/Resources/ex-pages/<caseName>/
@@ -939,4 +972,3 @@ struct Clean: AsyncParsableCommand {
         }
     }
 }
-

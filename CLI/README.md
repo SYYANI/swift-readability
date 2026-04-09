@@ -50,6 +50,7 @@ CLI/.staging/1a23-1/
 ├── meta.json
 ├── swift-out.html
 ├── swift-result.json
+├── swift-expected-metadata.json
 ├── mozilla-out.html
 ├── mozilla-result.json
 ├── draft-expected-metadata.json
@@ -110,11 +111,14 @@ Outputs:
 
 - `swift-out.html`
 - `swift-result.json`
+- `swift-expected-metadata.json`
 - `mozilla-out.html` when Node.js is available
 - `mozilla-result.json` when Node.js is available
 - `draft-expected-metadata.json` when Mozilla returns extracted content
 
 `parse` uses the original page URL stored in `meta.json` as the document base URL for both Swift and Mozilla runs. This keeps relative `href`, `src`, `srcset`, and similar media URLs resolvable in staged output.
+
+`swift-result.json` is a full Swift-side metadata dump for debugging. `swift-expected-metadata.json` mirrors the fixture schema used by library tests and is intended as the starting point for `expected-metadata.json`.
 
 If Mozilla Readability.js returns `null` for a staged page, `parse` no longer fails the whole command. Swift outputs are still written, `mozilla-result.json` records that Mozilla considered the page unreadable, and `review` can still be used with the available columns.
 
@@ -198,7 +202,7 @@ Use this step to prompt human review, identify the meaningful differences, and m
 
 4. Collaboratively decide the ideal target output for this case.
 
-This means the developer and the agent should agree on the desired `expected.html` and `expected-metadata.json`, rather than assuming Mozilla output can always be promoted unchanged.
+This means the developer and the agent should agree on the desired `expected.html` and `expected-metadata.json`, rather than assuming Mozilla output can always be promoted unchanged. In most cases, start from `swift-out.html` and `swift-expected-metadata.json`, then edit to the intended target state with Mozilla output used as reference.
 
 5. Commit the raw HTML and finalized expected output into `ex-pages`.
 
