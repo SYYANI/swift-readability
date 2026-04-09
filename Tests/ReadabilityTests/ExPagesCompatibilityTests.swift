@@ -605,4 +605,67 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: dfarq · Atari ST introduced April 8, 1985 (dfarq.homeip.net)
+
+    @Test("dfarq - Title matches expected")
+    func testDfarqTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("dfarq - Byline matches expected")
+    func testDfarqByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("dfarq - Excerpt matches expected")
+    func testDfarqExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("dfarq - Site name matches expected")
+    func testDfarqSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("dfarq - Published time matches expected")
+    func testDfarqPublishedTime() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.publishedTime == testCase.expectedMetadata.publishedTime)
+    }
+
+    @Test("dfarq - Content matches expected HTML")
+    func testDfarqContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }

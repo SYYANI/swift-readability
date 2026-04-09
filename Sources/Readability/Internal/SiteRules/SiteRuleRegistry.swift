@@ -218,6 +218,7 @@ enum SiteRuleRegistry {
                 CityLabPromoSummarySectionRule.self,
                 TheVergeZoomWrapperAccessibilityRule.self,
                 LiberationArticleBodyWrapperRule.self,
+                DFarqShareAuthorTailRule.self,
                 WordPressPrevNextNavigationRule.self,
                 JohnDCookRelatedPostsRule.self,
                 MercurialExampleSectionRule.self,
