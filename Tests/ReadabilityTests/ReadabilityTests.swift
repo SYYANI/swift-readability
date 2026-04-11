@@ -195,4 +195,84 @@ struct ReadabilityTests {
         let result = try readability.parse()
         #expect(result.byline == "Jane Doe")
     }
+
+    @Test("parse removes arXiv LaTeXML front matter before first section")
+    func testParseRemovesArXivLaTeXMLFrontMatter() throws {
+        let introParagraph = Array(repeating: "This introduction paragraph contains enough text, commas, and detail to behave like real article content.", count: 8)
+            .joined(separator: " ")
+        let html = """
+        <html>
+        <head>
+          <title>Sample Technical Report</title>
+        </head>
+        <body>
+          <div class="ltx_page_main">
+            <header class="desktop_header">
+              <div class="html-header-logo">
+                <a href="https://arxiv.org/">
+                  <img alt="logo" class="logo" src="https://services.dev.arxiv.org/html/static/arxiv-logo-one-color-white.svg">
+                  <span class="sr-only">Back to arXiv</span>
+                </a>
+              </div>
+              <div class="html-header-message" role="banner">
+                <p>This is <strong>experimental HTML</strong>. Learn more <a href="https://info.arxiv.org/about/accessible_HTML.html">about this project</a>.</p>
+              </div>
+              <nav class="html-header-nav">
+                <a class="ar5iv-footer-button hover-effect" href="https://arxiv.org/abs/1234.5678">Back to Abstract</a>
+                <a class="ar5iv-footer-button hover-effect" href="https://arxiv.org/pdf/1234.5678">Download PDF</a>
+              </nav>
+            </header>
+            <div class="ltx_page_content">
+              <article class="ltx_document ltx_authors_1line">
+                <div class="ltx_para" id="p1">
+                  <span class="ltx_ERROR undefined" id="p1.1">\\reportnumber</span>
+                  <p class="ltx_p" id="p1.2">001</p>
+                </div>
+                <div class="ltx_abstract">
+                  <h6 class="ltx_title ltx_title_abstract">Abstract</h6>
+                  <p class="ltx_p" id="abs">This abstract should remain in the extracted output because it is part of the readable paper content and provides a concise summary of the work.</p>
+                </div>
+                <div class="ltx_para" id="p2">
+                  <span class="ltx_ERROR undefined" id="p2.1" lang="en">{CJK*}</span>
+                  <p class="ltx_p" id="p2.2"><span class="ltx_text" id="p2.2.1" lang="en">UTF8gbsn</span></p>
+                </div>
+                <figure class="ltx_figure" id="S0.F1" lang="en">
+                  <img alt="Refer to caption" class="ltx_graphics ltx_img_landscape" height="485" id="S0.F1.g1" src="https://example.com/x1.png" width="830"/>
+                  <figcaption class="ltx_caption"><span class="ltx_tag ltx_tag_figure">Figure 1: </span>Benchmark summary figure.</figcaption>
+                </figure>
+                <div class="ltx_pagination ltx_role_newpage"></div>
+                <nav class="ltx_TOC ltx_list_toc ltx_toc_toc" lang="en">
+                  <h6 class="ltx_title ltx_title_contents">Contents</h6>
+                  <ol class="ltx_toclist">
+                    <li class="ltx_tocentry ltx_tocentry_section"><a class="ltx_ref" href="#S1"><span class="ltx_text ltx_ref_title"><span class="ltx_tag ltx_tag_ref">1 </span>Introduction</span></a></li>
+                  </ol>
+                </nav>
+                <section id="S1" lang="en">
+                  <h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
+                  <p class="ltx_p" id="S1.p1.1">\(introParagraph)</p>
+                </section>
+              </article>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+
+        let readability = try Readability(html: html)
+        let result = try readability.parse()
+
+        #expect(result.title == "Sample Technical Report")
+        #expect(result.content.contains("Abstract"))
+        #expect(result.content.contains("Introduction"))
+        #expect(!result.content.contains("\\reportnumber"))
+        #expect(!result.content.contains("{CJK*}"))
+        #expect(!result.content.contains("UTF8gbsn"))
+        #expect(!result.content.contains("Contents"))
+        #expect(!result.content.contains("Back to arXiv"))
+        #expect(!result.content.contains("Back to Abstract"))
+        #expect(!result.content.contains("Download PDF"))
+        #expect(!result.content.contains("experimental HTML"))
+        #expect(!result.content.contains("S0.F1.g1"))
+        #expect(!result.content.contains("Benchmark summary figure"))
+    }
 }

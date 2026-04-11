@@ -163,6 +163,7 @@ enum SiteRuleRegistry {
         switch phase {
         case .unwantedElements:
             return [
+                ArXivLaTeXMLFrontMatterRule.self,
                 AntirezDisqusFooterRule.self,
                 AntirezLeadingInfoRule.self,
                 WashingtonPostGalleryEmbedRule.self,
