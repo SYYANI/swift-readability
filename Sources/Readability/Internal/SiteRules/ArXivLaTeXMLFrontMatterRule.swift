@@ -1,14 +1,14 @@
 import Foundation
 import SwiftSoup
 
-/// Removes arXiv/LaTeXML front-matter noise that can leak into extracted article content.
+/// Removes arXiv/ar5iv LaTeXML front-matter and page chrome noise that can leak into extracted article content.
 ///
 /// SiteRule Metadata:
-/// - Scope: arXiv LaTeXML paper shell before the first numbered section
+/// - Scope: arXiv/ar5iv LaTeXML paper shell before the first numbered section
 /// - Phase: `unwanted` cleanup
 /// - Trigger: `article.ltx_document` with `.ltx_abstract`, `.ltx_TOC`, and `.ltx_page_content`
-/// - Evidence: `https://arxiv.org/html/2412.19437v2`
-/// - Risk if misplaced: front-matter commands, generated TOC, and hero summary figure remain above the main text
+/// - Evidence: `https://arxiv.org/html/2412.19437v2`, `https://ar5iv.labs.arxiv.org/html/2412.19437`
+/// - Risk if misplaced: front-matter commands, generated TOC, hero summary figure, and ar5iv navigation/footer remain in the main text
 enum ArXivLaTeXMLFrontMatterRule: ArticleCleanerSiteRule {
     static let id = "arxiv-latexml-front-matter"
 
@@ -34,6 +34,18 @@ enum ArXivLaTeXMLFrontMatterRule: ArticleCleanerSiteRule {
                 try header.remove()
             }
         }
+
+        for footer in try articleContent.select("div.ar5iv-footer").array() {
+            if isAr5ivFooter(footer) {
+                try footer.remove()
+            }
+        }
+
+        for footer in try articleContent.select("footer.ltx_page_footer").array() {
+            if isAr5ivPageFooter(footer) {
+                try footer.remove()
+            }
+        }
     }
 
     private static func isArXivDesktopHeader(_ header: Element) -> Bool {
@@ -41,6 +53,20 @@ enum ArXivLaTeXMLFrontMatterRule: ArticleCleanerSiteRule {
         let hasProjectLink = (try? header.select(".html-header-message a[href*='accessible_HTML']").isEmpty()) == false
         let hasNavLink = (try? header.select(".html-header-nav a[href*='arxiv.org/abs/'], .html-header-nav a[href*='arxiv.org/pdf/']").isEmpty()) == false
         return hasLogoLink && (hasProjectLink || hasNavLink)
+    }
+
+    private static func isAr5ivFooter(_ footer: Element) -> Bool {
+        let hasHomeLink = (try? footer.select("a.ar5iv-home-button[href='/']").isEmpty()) == false
+        let hasOriginalLink = (try? footer.select("a.arxiv-ui-theme[href*='arxiv.org/abs/']").isEmpty()) == false
+        let hasIssueLink = (try? footer.select("a[href*='github.com/dginev/ar5iv/issues/new']").isEmpty()) == false
+        return hasHomeLink && (hasOriginalLink || hasIssueLink)
+    }
+
+    private static func isAr5ivPageFooter(_ footer: Element) -> Bool {
+        let hasColorSchemeToggle = (try? footer.select("a.ar5iv-toggle-color-scheme[href^='javascript:toggleColorScheme']").isEmpty()) == false
+        let hasPolicyLinks = (try? footer.select("a.ar5iv-footer-button[href*='arxiv.org/help/license'], a.ar5iv-footer-button[href*='privacy_policy']").isEmpty()) == false
+        let hasLatexmlLogo = (try? footer.select(".ltx_page_logo a.ltx_LaTeXML_logo").isEmpty()) == false
+        return hasLatexmlLogo && (hasColorSchemeToggle || hasPolicyLinks)
     }
 
     private static func isLaTeXMLArticle(_ article: Element) -> Bool {
