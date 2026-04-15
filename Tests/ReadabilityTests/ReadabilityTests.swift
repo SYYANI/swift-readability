@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import SwiftSoup
 @testable import Readability
 
@@ -194,5 +195,78 @@ struct ReadabilityTests {
         let readability = try Readability(html: html)
         let result = try readability.parse()
         #expect(result.byline == "Jane Doe")
+    }
+
+    @Test("parse promotes readable noscript article fallback")
+    func testParsePromotesReadableNoscriptFallback() throws {
+        let html = """
+        <html>
+        <head>
+          <title>Noscript Article</title>
+        </head>
+        <body>
+          <div id="app">
+            <header><a href="https://example.com">Example Site</a></header>
+          </div>
+          <noscript>
+            <div class="container">
+              <h1>Noscript Article</h1>
+              <article>
+                <p>First paragraph, with commas, is long enough to count as article content and should be promoted into the scoring tree for extraction.</p>
+                <p>Second paragraph continues the article with enough words, commas, and narrative detail to remain a strong readability candidate after fallback promotion.</p>
+                <p>Third paragraph keeps the article well above the minimum threshold, with additional descriptive prose and another comma for scoring stability.</p>
+                <p>Fourth paragraph adds more substantial content so the promoted fallback is unquestionably article text rather than a short no-script notice.</p>
+                <p>Fifth paragraph closes the sample article while keeping the structure semantic, readable, and obviously more meaningful than the app shell.</p>
+              </article>
+            </div>
+          </noscript>
+        </body>
+        </html>
+        """
+
+        let readability = try Readability(html: html, baseURL: URL(string: "https://example.com/article"))
+        let result = try readability.parse()
+
+        #expect(result.title == "Noscript Article")
+        #expect(result.textContent.contains("First paragraph, with commas"))
+        #expect(result.textContent.contains("Fifth paragraph closes the sample article"))
+        #expect(!result.textContent.contains("Example Site"))
+    }
+
+    @Test("parse ignores non-article noscript warning blocks")
+    func testParseIgnoresNonArticleNoscriptWarnings() throws {
+        let html = """
+        <html>
+        <head>
+          <title>Live Article</title>
+        </head>
+        <body>
+          <article>
+            <p>Live paragraph one, with commas, provides the main article content and should remain the extracted result.</p>
+            <p>Live paragraph two continues with enough text, commas, and ordinary prose to keep the visible article comfortably above threshold.</p>
+            <p>Live paragraph three ensures the document stays readable without relying on any noscript fallback or warning content.</p>
+            <p>Live paragraph four adds extra detail so the visible article is the strongest candidate in the document.</p>
+            <p>Live paragraph five wraps up the sample article and confirms extraction stays on the live DOM tree.</p>
+          </article>
+          <noscript>
+            <div>
+              <p>Please enable JavaScript to use this site fully.</p>
+              <p>For full functionality, it is necessary to enable JavaScript.</p>
+              <p>This modern browser notice should never be promoted into article extraction.</p>
+              <p>Enable JavaScript to continue browsing these interactive features.</p>
+              <p>This warning intentionally contains many words, commas, and paragraphs, but no semantic article container.</p>
+            </div>
+          </noscript>
+        </body>
+        </html>
+        """
+
+        let readability = try Readability(html: html, baseURL: URL(string: "https://example.com/live"))
+        let result = try readability.parse()
+
+        #expect(result.title == "Live Article")
+        #expect(result.textContent.contains("Live paragraph one"))
+        #expect(!result.textContent.contains("Please enable JavaScript"))
+        #expect(!result.textContent.contains("full functionality"))
     }
 }

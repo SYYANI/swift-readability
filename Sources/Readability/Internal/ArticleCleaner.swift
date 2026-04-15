@@ -30,6 +30,10 @@ final class ArticleCleaner {
         try removeUnwantedElements(articleContent)
         debugSnapshot?("prep.removeUnwantedElements", articleContent)
 
+        // Preserve floated inline images as standalone blocks before styles are stripped.
+        try promoteFloatedInlineImagesToFigures(articleContent)
+        debugSnapshot?("prep.promoteFloatedInlineImages", articleContent)
+
         // Clean styles
         try cleanStyles(articleContent)
         debugSnapshot?("prep.cleanStyles", articleContent)
@@ -279,6 +283,186 @@ final class ArticleCleaner {
     }
 
     // MARK: - Style Cleaning
+
+    /// Promote inline images that rely on explicit float styles into standalone
+    /// `<figure>` blocks so they do not collapse into paragraph-leading inline
+    /// images once presentational styles are removed.
+    private func promoteFloatedInlineImagesToFigures(_ root: Element) throws {
+        while let image = try nextFloatedInlineImage(in: root) {
+            guard let host = nearestFloatedImageHost(for: image), host.parent() != nil else {
+                continue
+            }
+            try promoteFloatedInlineImage(image, from: host)
+        }
+    }
+
+    private func nextFloatedInlineImage(in root: Element) throws -> Element? {
+        for image in try root.select("img[style]") {
+            guard image.parent() != nil else { continue }
+            guard isFloatedInlineImage(image) else { continue }
+            guard !hasAncestorTag(image, tag: "figure") else { continue }
+            guard nearestFloatedImageHost(for: image) != nil else { continue }
+            return image
+        }
+
+        return nil
+    }
+
+    private func isFloatedInlineImage(_ image: Element) -> Bool {
+        let style = ((try? image.attr("style")) ?? "")
+        return style.range(
+            of: "(^|;)\\s*float\\s*:\\s*(left|right)\\b",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func nearestFloatedImageHost(for image: Element) -> Element? {
+        let supportedHosts: Set<String> = ["p", "div", "li", "blockquote"]
+        var current = image.parent()
+
+        while let node = current {
+            let tagName = node.tagName().lowercased()
+            if supportedHosts.contains(tagName) {
+                return node
+            }
+            if ["article", "section", "main", "body"].contains(tagName) {
+                return nil
+            }
+            current = node.parent()
+        }
+
+        return nil
+    }
+
+    private func promoteFloatedInlineImage(_ image: Element, from host: Element) throws {
+        guard let parent = host.parent() else { return }
+
+        let doc = host.ownerDocument() ?? Document("")
+        let path = buildAncestorPath(from: host, to: image)
+        guard !path.isEmpty else { return }
+
+        let split = try splitElement(host, along: path, at: 0)
+        let figure = try doc.createElement("figure")
+        let promotedImage: Element
+        if let copiedImage = image.copy() as? Element {
+            promotedImage = copiedImage
+        } else {
+            promotedImage = try DOMHelpers.cloneElement(image, in: doc)
+        }
+        try figure.appendChild(promotedImage)
+
+        if let before = split.before {
+            try host.before(before)
+        }
+        try host.before(figure)
+        if let after = split.after {
+            try host.before(after)
+        }
+
+        if parent === host.parent() {
+            try host.remove()
+        }
+    }
+
+    private func buildAncestorPath(from host: Element, to target: Element) -> [Element] {
+        var path: [Element] = [target]
+        var current = target.parent()
+
+        while let node = current {
+            path.append(node)
+            if node === host {
+                return path.reversed()
+            }
+            current = node.parent()
+        }
+
+        return []
+    }
+
+    private func splitElement(
+        _ element: Element,
+        along path: [Element],
+        at index: Int
+    ) throws -> (before: Element?, after: Element?) {
+        let beforeClone = try clonedElementShell(for: element)
+        let afterClone = try clonedElementShell(for: element)
+        let nextOnPath = index + 1 < path.count ? path[index + 1] : nil
+        var hasCrossedTarget = false
+
+        for child in element.getChildNodes() {
+            if let nextOnPath, child === nextOnPath {
+                if index + 1 == path.count - 1 {
+                    hasCrossedTarget = true
+                    continue
+                }
+
+                if let childElement = child as? Element {
+                    let splitChild = try splitElement(childElement, along: path, at: index + 1)
+                    if let beforeChild = splitChild.before {
+                        try beforeClone.appendChild(beforeChild)
+                    }
+                    if let afterChild = splitChild.after {
+                        try afterClone.appendChild(afterChild)
+                    }
+                    hasCrossedTarget = true
+                    continue
+                }
+            }
+
+            let clonedChild = child.copy() as! Node
+            if hasCrossedTarget {
+                try afterClone.appendChild(clonedChild)
+            } else {
+                try beforeClone.appendChild(clonedChild)
+            }
+        }
+
+        try pruneEmptyDescendants(in: beforeClone)
+        try pruneEmptyDescendants(in: afterClone)
+
+        return (
+            before: hasMeaningfulContent(beforeClone) ? beforeClone : nil,
+            after: hasMeaningfulContent(afterClone) ? afterClone : nil
+        )
+    }
+
+    private func clonedElementShell(for element: Element) throws -> Element {
+        let doc = element.ownerDocument() ?? Document("")
+        let clone = try doc.createElement(element.tagName())
+        try DOMHelpers.copyAttributes(from: element, to: clone)
+        return clone
+    }
+
+    private func pruneEmptyDescendants(in element: Element) throws {
+        for child in element.children().reversed() {
+            try pruneEmptyDescendants(in: child)
+            if !hasMeaningfulContent(child) {
+                try child.remove()
+            }
+        }
+    }
+
+    private func hasMeaningfulContent(_ node: Node) -> Bool {
+        switch node {
+        case let textNode as TextNode:
+            return !textNode.getWholeText()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        case let dataNode as DataNode:
+            return !dataNode.getWholeData()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        case _ as Comment:
+            return false
+        case let element as Element:
+            if ["img", "picture", "video", "audio", "svg"].contains(element.tagName().lowercased()) {
+                return true
+            }
+            return element.getChildNodes().contains { hasMeaningfulContent($0) }
+        default:
+            return !node.nodeName().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     /// Remove style attributes and presentational attributes
     private func cleanStyles(_ element: Element) throws {

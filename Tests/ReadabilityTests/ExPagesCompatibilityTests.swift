@@ -754,4 +754,47 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: macscene · Interview: John Calhoun on the Origins of Glider (Part 1) (macscene.net)
+
+    @Test("macscene - Title matches expected")
+    func testMacsceneTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("macscene - Byline matches expected")
+    func testMacsceneByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("macscene - Excerpt matches expected")
+    func testMacsceneExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("macscene - Content matches expected HTML")
+    func testMacsceneContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }

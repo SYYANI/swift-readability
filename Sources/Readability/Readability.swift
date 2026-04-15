@@ -47,6 +47,12 @@ public struct Readability {
         // Match Mozilla: upgrade lazy/placeholder images from <noscript> first.
         try unwrapNoscriptImages()
 
+        // Intentional Mozilla deviation: some script-heavy pages ship the full
+        // readable article only inside a semantic <noscript> fallback.
+        // Promote those narrowly-scoped fallbacks before prepDocument()
+        // removes remaining <noscript> nodes.
+        try promoteReadableNoscriptFallbacks()
+
         // Extract metadata BEFORE prepDocument() to preserve JSON-LD scripts
         let metadata = try extractMetadata()
 
@@ -552,6 +558,116 @@ public struct Readability {
             try copyLegacyImageAttributes(from: oldImg, to: extractedImage)
             try prevElement.replaceWith(extractedImage)
         }
+    }
+
+    /// Promote semantic full-article `<noscript>` fallbacks into the live DOM.
+    ///
+    /// Mozilla removes all remaining `<noscript>` nodes after its image-only
+    /// upgrade path. Some modern app-shell pages, however, keep the entire
+    /// server-rendered article inside `<noscript>` as an accessibility or
+    /// no-JS fallback. We intentionally recover only those high-confidence
+    /// article fallbacks instead of broadly preserving all `<noscript>` nodes.
+    private func promoteReadableNoscriptFallbacks() throws {
+        let noscripts = try doc.select("noscript")
+        for noscript in noscripts {
+            guard let promoted = try promotedReadableNoscriptElement(from: noscript) else {
+                continue
+            }
+            try noscript.replaceWith(promoted)
+        }
+    }
+
+    private func promotedReadableNoscriptElement(from noscript: Element) throws -> Element? {
+        guard try extractSingleImage(fromNoscript: noscript) == nil else {
+            return nil
+        }
+
+        let html = try noscript.html().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else {
+            return nil
+        }
+
+        let fragment = try SwiftSoup.parseBodyFragment(html)
+        guard let fragmentBody = fragment.body() else {
+            return nil
+        }
+
+        let warningText = try DOMHelpers.getInnerText(fragmentBody).lowercased()
+        guard !warningText.isEmpty,
+              !looksLikeNoscriptWarning(warningText) else {
+            return nil
+        }
+
+        guard let semanticRoot = try readableNoscriptSemanticRoot(in: fragmentBody) else {
+            return nil
+        }
+
+        let threshold = max(options.charThreshold, Configuration.defaultCharThreshold)
+        let textLength = try DOMHelpers.getInnerText(semanticRoot).count
+        let paragraphCount = try semanticRoot.select("p").count
+        let linkDensity = try getLinkDensity(semanticRoot)
+
+        guard textLength >= threshold,
+              paragraphCount >= 5,
+              linkDensity < 0.35 else {
+            return nil
+        }
+
+        let promotedRoot: Element
+        if fragmentBody.children().count == 1, let onlyChild = fragmentBody.children().first {
+            promotedRoot = onlyChild
+        } else {
+            promotedRoot = semanticRoot
+        }
+
+        return try DOMHelpers.cloneElement(promotedRoot, in: doc)
+    }
+
+    private func readableNoscriptSemanticRoot(in fragmentBody: Element) throws -> Element? {
+        if let article = try fragmentBody.select("article").first() {
+            return article
+        }
+        if let main = try fragmentBody.select("main").first() {
+            return main
+        }
+
+        var node: Element? = fragmentBody
+        while let current = node {
+            let itemProp = (try? current.attr("itemprop").lowercased()) ?? ""
+            if itemProp.contains("articlebody") {
+                return current
+            }
+            node = DOMTraversal.getNextNode(current)
+        }
+
+        return nil
+    }
+
+    private func looksLikeNoscriptWarning(_ text: String) -> Bool {
+        let warningPhrases = [
+            "enable javascript",
+            "javascript enabled",
+            "without javascript",
+            "full functionality",
+            "modern browser"
+        ]
+        return warningPhrases.contains { text.contains($0) }
+    }
+
+    private func getLinkDensity(_ element: Element) throws -> Double {
+        let textLength = try DOMHelpers.getInnerText(element).count
+        if textLength == 0 {
+            return 0
+        }
+
+        let links = try element.select("a")
+        var linkLength = 0.0
+        for link in links {
+            let href = (try? link.attr("href")) ?? ""
+            let coefficient = href.hasPrefix("#") ? 0.3 : 1.0
+            linkLength += Double(try DOMHelpers.getInnerText(link).count) * coefficient
+        }
+        return linkLength / Double(textLength)
     }
 
     private func extractSingleImage(fromNoscript noscript: Element) throws -> Element? {

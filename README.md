@@ -136,6 +136,9 @@ This project tracks Mozilla parity with strict fixture-based tests:
 
 Current imported suites are passing in this repository state.
 
+Intentional compatibility deviation:
+- When a page ships a full semantic article fallback inside `<noscript>`, the parser may promote that fallback into the live DOM before `prepDocument()` removes remaining `<noscript>` nodes. This is a narrowly-scoped recovery path for script-shell pages whose real readable content would otherwise be lost entirely.
+
 ## HTML Output Contract
 
 The default goal of this library is Mozilla Readability output parity. However, the serialized HTML may include narrowly-scoped compatibility attributes when a site-specific structure cannot be represented safely by generic HTML semantics alone.

@@ -4,6 +4,9 @@
 **Reason:** Information outdated, superseded by REVIEW.md and AGENTS.md
 **Current Status:** See REVIEW.md for latest project status
 
+2026-04-15 compatibility note:
+- The core parser intentionally promotes high-confidence semantic `<noscript>` article fallbacks before document prep removes remaining `<noscript>` nodes. This is a narrow Mozilla-parity deviation for app-shell pages that otherwise expose no readable body outside the fallback.
+
 ---
 
 # Swift Readability Porting Plan
