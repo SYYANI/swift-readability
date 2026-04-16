@@ -797,4 +797,47 @@ struct ExPagesCompatibilityTests {
         let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
+
+    // MARK: buttondown · A sufficiently comprehensive spec is not (necessarily) code (buttondown.com)
+
+    @Test("buttondown - Title matches expected")
+    func testButtondownTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("buttondown - Byline matches expected")
+    func testButtondownByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("buttondown - Excerpt matches expected")
+    func testButtondownExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("buttondown - Content matches expected HTML")
+    func testButtondownContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
 }
