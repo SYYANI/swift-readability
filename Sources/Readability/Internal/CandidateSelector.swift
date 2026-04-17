@@ -119,8 +119,9 @@ final class CandidateSelector {
     /// Find a better top candidate if the current one contains multiple good candidates
     /// This implements the alternative ancestor analysis from Mozilla Readability.js
     func findBetterTopCandidate(from topCandidate: Element, topCandidates: TopCandidates) throws -> Element {
-        // Preserve explicit NYTimes article container.
-        if shouldKeepArticleCandidate(topCandidate) {
+        // Preserve explicit site-specific candidates that should not be
+        // promoted into outer layout wrappers.
+        if shouldKeepCurrentCandidate(topCandidate) {
             return topCandidate
         }
 
@@ -168,7 +169,7 @@ final class CandidateSelector {
             }
 
             if listsContainingAncestor >= Configuration.minimumTopCandidates {
-                if shouldKeepArticleCandidate(topCandidate) {
+                if shouldKeepCurrentCandidate(topCandidate) {
                     return topCandidate
                 }
                 return parent
@@ -191,7 +192,7 @@ final class CandidateSelector {
         while let parent = parentOfTopCandidate,
               parent.tagName().uppercased() != "BODY",
               parent.children().count == 1 {
-            if shouldKeepArticleCandidate(currentCandidate) {
+            if shouldKeepCurrentCandidate(currentCandidate) {
                 break
             }
             currentCandidate = parent
@@ -247,7 +248,7 @@ final class CandidateSelector {
 
             // If parent has higher score, use it
             if parentScore > lastScore {
-                if shouldKeepArticleCandidate(currentCandidate) {
+                if shouldKeepCurrentCandidate(currentCandidate) {
                     inspectionContext?.recordPromotionStep(
                         descriptor: DOMDebugFormatting.conciseElementDescriptor(parent),
                         path: InspectionDOMHelpers.nodePath(parent),
@@ -362,17 +363,18 @@ final class CandidateSelector {
         return semanticMain
     }
 
-    /// Keep explicit NYTimes article container from being promoted into layout wrappers.
-    private func shouldKeepArticleCandidate(_ current: Element) -> Bool {
+    /// Keep explicit site-specific candidates from being promoted into outer
+    /// layout wrappers.
+    private func shouldKeepCurrentCandidate(_ current: Element) -> Bool {
+        if SiteRuleRegistry.shouldKeepCandidate(current) {
+            return true
+        }
+
         guard current.tagName().uppercased() == "ARTICLE" else {
             return false
         }
         let id = current.id().trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if id == "story" {
-            return true
-        }
-
-        return SiteRuleRegistry.shouldKeepCandidate(current)
+        return id == "story"
     }
 
     private func describe(_ element: Element) -> String {

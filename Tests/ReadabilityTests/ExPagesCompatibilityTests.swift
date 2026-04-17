@@ -755,6 +755,69 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
+    // MARK: macrumors · Here's How Researchers Stole $10,000 From MKBHD's Locked iPhone (macrumors.com)
+
+    @Test("macrumors - Title matches expected")
+    func testMacRumorsTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("macrumors - Byline matches expected")
+    func testMacRumorsByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("macrumors - Excerpt matches expected")
+    func testMacRumorsExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("macrumors - Site name matches expected")
+    func testMacRumorsSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("macrumors - Published time matches expected")
+    func testMacRumorsPublishedTime() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.publishedTime == testCase.expectedMetadata.publishedTime)
+    }
+
+    @Test("macrumors - Content matches expected HTML")
+    func testMacRumorsContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
     // MARK: macscene · Interview: John Calhoun on the Origins of Glider (Part 1) (macscene.net)
 
     @Test("macscene - Title matches expected")

@@ -119,7 +119,8 @@ enum SiteRuleRegistry {
 
     static func shouldKeepCandidate(_ current: Element) -> Bool {
         let rules: [CandidateProtectionSiteRule.Type] = [
-            CityLabArticleContainerCandidateRule.self
+            CityLabArticleContainerCandidateRule.self,
+            MacRumorsMainContentCandidateRule.self
         ]
         for rule in rules where rule.shouldKeepCandidate(current) {
             return true
@@ -183,6 +184,7 @@ enum SiteRuleRegistry {
                 MedicalNewsTodayRelatedInlineRule.self,
                 CNETPlaylistOverlayRule.self,
                 CityLabPromoSignupRule.self,
+                MacRumorsArticleChromeRule.self,
                 BerthubNavigationChromeRule.self,
                 EngadgetSlideshowIconRule.self,
                 WikipediaLeadMetaNoiseRule.self,
