@@ -25,6 +25,7 @@ enum SiteRuleRegistry {
     static func applySerializationRules(to articleContent: Element) throws {
         let rules: [SerializationSiteRule.Type] = [
             AntirezProsePreRule.self,
+            OneA23GalleryWrapperRule.self,
             TelegraphCaptionOnlyFigureRule.self,
             CityLabHeadlineTimestampRule.self,
             BuzzFeedLeadImageSuperlistRule.self,
@@ -99,6 +100,29 @@ enum SiteRuleRegistry {
             )
         }
         return current
+    }
+
+    static func shortContentFallbackArticle(
+        in document: Document,
+        sourceURL: URL?,
+        inspectionContext: InspectionContext? = nil
+    ) throws -> Element? {
+        let rules: [ShortContentFallbackSiteRule.Type] = [
+            OneA23GalleryShortArticleRule.self
+        ]
+        for rule in rules {
+            if let fallback = try rule.fallbackArticleContent(in: document, sourceURL: sourceURL) {
+                inspectionContext?.recordSiteRuleDecision(
+                    phase: "short-content-fallback",
+                    ruleID: rule.id,
+                    target: fallback,
+                    action: "recover",
+                    reason: "site-specific-short-article"
+                )
+                return fallback
+            }
+        }
+        return nil
     }
 
     static func promotedCandidate(from candidate: Element) -> Element? {

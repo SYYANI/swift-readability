@@ -30,6 +30,8 @@ enum DFarqShareAuthorTailRule: ArticleCleanerSiteRule {
 
             try shareBlock.remove()
         }
+
+        try removeTrailingAuthorBioIfPresent(from: articleContent)
     }
 
     private static func isRecognizedTailNode(_ node: Element) -> Bool {
@@ -45,6 +47,43 @@ enum DFarqShareAuthorTailRule: ArticleCleanerSiteRule {
         }
 
         return false
+    }
+
+    private static func removeTrailingAuthorBioIfPresent(from articleContent: Element) throws {
+        for node in try articleContent
+            .select("div[itemprop='author'][itemtype*='schema.org/Person']")
+            .array()
+            .reversed()
+        {
+            if try isRecognizedAuthorBio(node), isTrailingNode(node) {
+                try node.remove()
+                continue
+            }
+            break
+        }
+    }
+
+    private static func isRecognizedAuthorBio(_ node: Element) throws -> Bool {
+        let itemprop = try node.attr("itemprop").lowercased()
+        let itemtype = try node.attr("itemtype").lowercased()
+        guard itemprop == "author", itemtype.contains("schema.org/person") else {
+            return false
+        }
+
+        let text = normalizedText(try DOMHelpers.getInnerText(node))
+        if text.contains("david farquhar is a computer security professional"),
+           text.contains("he has written professionally about computers since 1991") {
+            return true
+        }
+
+        let imageSources = try node.select("img[itemprop='image']").array().compactMap { image in
+            (try? image.attr("src"))?.lowercased()
+        }
+        return imageSources.contains { $0.contains("dave_farquhar_181px") }
+    }
+
+    private static func isTrailingNode(_ node: Element) -> Bool {
+        ((try? node.nextElementSibling()) ?? nil) == nil
     }
 
     private static func normalizedText(_ text: String) -> String {

@@ -102,11 +102,36 @@ final class NodeCleaner {
             return false
         }
 
+        // Preserve structured footnote sections. Markdown/static-site generators
+        // often use classes like "footnote" which collide with unlikely patterns,
+        // but the contained ordered list and backrefs are part of the article body.
+        if shouldKeepFootnoteSection(element) {
+            return false
+        }
+
         // Check for unlikely candidate patterns
         if matchesUnlikelyCandidate(matchString) &&
            !matchesOkMaybeItsACandidate(matchString) &&
            !DOMTraversal.hasAncestorTag(element, tagName: "table", maxDepth: 3) &&
            !DOMTraversal.hasAncestorTag(element, tagName: "code", maxDepth: 3) {
+            return true
+        }
+
+        return false
+    }
+
+    private func shouldKeepFootnoteSection(_ element: Element) -> Bool {
+        let identity = getMatchString(element)
+        let dataType = ((try? element.attr("data-type")) ?? "").lowercased()
+        guard identity.contains("footnote") || dataType.contains("footnote") else {
+            return false
+        }
+
+        if (try? element.select("li[id^='fn:']").isEmpty()) == false {
+            return true
+        }
+
+        if (try? element.select("a[href^='#fnref:']").isEmpty()) == false {
             return true
         }
 

@@ -12,6 +12,7 @@ final class ContentExtractor {
     private let options: ReadabilityOptions
     private let articleTitle: String
     private let sourceURL: URL?
+    private let acceptanceTextLengthEvaluator: ((Element, UInt32) throws -> Int)?
     private var flags: UInt32
     private var attempts: [ExtractionAttempt]
     private var pageCacheHtml: String?
@@ -34,12 +35,14 @@ final class ContentExtractor {
         options: ReadabilityOptions,
         articleTitle: String = "",
         sourceURL: URL? = nil,
+        acceptanceTextLengthEvaluator: ((Element, UInt32) throws -> Int)? = nil,
         inspectionContext: InspectionContext? = nil
     ) {
         self.doc = doc
         self.options = options
         self.articleTitle = articleTitle
         self.sourceURL = sourceURL
+        self.acceptanceTextLengthEvaluator = acceptanceTextLengthEvaluator
         self.inspectionContext = inspectionContext
         self.flags = Configuration.flagStripUnlikelies |
                      Configuration.flagWeightClasses |
@@ -52,7 +55,7 @@ final class ContentExtractor {
     /// Extract article content with multi-attempt fallback
     /// - Returns: Tuple of (article content element, byline, neededToCreate, dir, lang)
     /// - Throws: ReadabilityError if extraction fails
-    func extract() throws -> (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?) {
+    func extract() throws -> (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?, flags: UInt32) {
         guard let body = doc.body() else {
             throw ReadabilityError.elementNotFound("body")
         }
@@ -62,7 +65,7 @@ final class ContentExtractor {
         // Cache original HTML for restoration
         pageCacheHtml = try body.html()
 
-        var result: (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?)?
+        var result: (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?, flags: UInt32)?
 
         // Multi-attempt loop
         while true {
@@ -83,7 +86,12 @@ final class ContentExtractor {
             )
 
             // Check if content is long enough
-            let textLength = try attemptResult.content.text().count
+            let textLength: Int
+            if let acceptanceTextLengthEvaluator {
+                textLength = try acceptanceTextLengthEvaluator(attemptResult.content, flags)
+            } else {
+                textLength = try attemptResult.content.text().count
+            }
             inspectionContext?.recordContentSnapshot(
                 articleContent: attemptResult.content,
                 selectedCandidate: attemptResult.selectedCandidate,
@@ -98,7 +106,8 @@ final class ContentExtractor {
                     byline: articleByline ?? attemptResult.byline,
                     neededToCreate: attemptResult.neededToCreate,
                     dir: attemptResult.dir,
-                    lang: articleLang
+                    lang: articleLang,
+                    flags: flags
                 )
                 break
             }
@@ -129,7 +138,8 @@ final class ContentExtractor {
                         byline: bestAttempt.byline,
                         neededToCreate: false,
                         dir: bestAttempt.dir,
-                        lang: bestAttempt.lang
+                        lang: bestAttempt.lang,
+                        flags: bestAttempt.flags
                     )
                     break
                 } else {

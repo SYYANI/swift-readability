@@ -78,24 +78,6 @@ enum WikipediaGovernmentPortraitCaptionRule: SerializationSiteRule {
             }
         }
 
-        for div in try articleContent.select("div").array().reversed() {
-            let text = ((try? div.text()) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            guard text.contains("the southern alps stretch for 500 kilometres down the south island"),
-                  (try? div.select("> p:has(img)").isEmpty()) == false else {
-                continue
-            }
-            let children = div.children().array()
-            guard children.count >= 2,
-                  children.allSatisfy({ $0.tagName().lowercased() == "p" }) else {
-                continue
-            }
-            let innerHTML = try div.html()
-            try div.before(innerHTML)
-            try div.remove()
-        }
-
         for anchor in try articleContent.select("a").array() {
             let href = ((try? anchor.attr("href")) ?? "").lowercased()
             let shouldBlank = href.contains("nz_landscape.jpg")

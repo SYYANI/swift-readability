@@ -67,12 +67,66 @@ public struct Readability {
             title = try extractTitle()
         }
 
-        // Extract article content using new ContentExtractor
-        let extractor = ContentExtractor(doc: doc, options: options, articleTitle: title, sourceURL: sourceURL, inspectionContext: inspectionContext)
-        let initialExtraction = try extractor.extract()
+        func measurePreparedTextLength(_ articleContent: Element, flags: UInt32) throws -> Int {
+            guard let preparedCopy = articleContent.copy() as? Element else {
+                return try articleContent.text().count
+            }
 
-        func cleanArticleContent(_ articleContent: Element, snapshotPrefix: String? = nil) throws -> String {
-            let cleaner = ArticleCleaner(options: options) { stage, element in
+            let cleaner = ArticleCleaner(
+                options: options,
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+            )
+            try cleaner.prepArticle(preparedCopy)
+            return try preparedCopy.text().count
+        }
+
+        // Extract article content using new ContentExtractor
+        let extractor = ContentExtractor(
+            doc: doc,
+            options: options,
+            articleTitle: title,
+            sourceURL: sourceURL,
+            acceptanceTextLengthEvaluator: measurePreparedTextLength(_:flags:),
+            inspectionContext: inspectionContext
+        )
+        let initialExtraction: (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?, flags: UInt32)
+        do {
+            initialExtraction = try extractor.extract()
+        } catch let ReadabilityError.contentTooShort(actualLength, threshold) {
+            guard let recoveredContent = try SiteRuleRegistry.shortContentFallbackArticle(
+                in: doc,
+                sourceURL: sourceURL,
+                inspectionContext: inspectionContext
+            ) else {
+                throw ReadabilityError.contentTooShort(
+                    actualLength: actualLength,
+                    threshold: threshold
+                )
+            }
+
+            let documentLanguage = (try? doc.select("html").first()?.attr("lang"))
+                ?? nil
+            initialExtraction = (
+                content: recoveredContent,
+                byline: nil,
+                neededToCreate: false,
+                dir: nil,
+                lang: documentLanguage?.trimmingCharacters(in: .whitespacesAndNewlines),
+                flags: Configuration.flagStripUnlikelies |
+                    Configuration.flagWeightClasses |
+                    Configuration.flagCleanConditionally
+            )
+        }
+
+        func cleanArticleContent(
+            _ articleContent: Element,
+            flags: UInt32,
+            snapshotPrefix: String? = nil
+        ) throws -> String {
+            let cleaner = ArticleCleaner(
+                options: options,
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+            ) { stage, element in
                 let stageName: String
                 if let snapshotPrefix {
                     stageName = "\(snapshotPrefix).\(stage)"
@@ -103,7 +157,8 @@ public struct Readability {
         var extractedByline = initialExtraction.byline
         var articleDir = initialExtraction.dir
         var articleLang = initialExtraction.lang
-        var textContent = try cleanArticleContent(articleContent)
+        var extractionFlags = initialExtraction.flags
+        var textContent = try cleanArticleContent(articleContent, flags: extractionFlags)
 
         if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             for (index, attempt) in extractor.getAttemptsSortedByTextLength().enumerated() {
@@ -113,6 +168,7 @@ public struct Readability {
 
                 let candidateTextContent = try cleanArticleContent(
                     attempt.articleContent,
+                    flags: attempt.flags,
                     snapshotPrefix: "retry\(index + 1)"
                 )
                 if candidateTextContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -123,6 +179,7 @@ public struct Readability {
                 extractedByline = attempt.byline
                 articleDir = attempt.dir
                 articleLang = attempt.lang
+                extractionFlags = attempt.flags
                 textContent = candidateTextContent
                 break
             }

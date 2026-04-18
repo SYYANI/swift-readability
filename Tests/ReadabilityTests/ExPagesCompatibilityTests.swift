@@ -861,6 +861,59 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
+    // MARK: idiallo · We Are All Playing Politics at Work (idiallo.com)
+
+    @Test("idiallo - Title matches expected")
+    func testIdialloTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("idiallo - Byline matches expected")
+    func testIdialloByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("idiallo - Excerpt matches expected")
+    func testIdialloExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("idiallo - Site name matches expected")
+    func testIdialloSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("idiallo - Content matches expected HTML")
+    func testIdialloContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
     // MARK: buttondown · A sufficiently comprehensive spec is not (necessarily) code (buttondown.com)
 
     @Test("buttondown - Title matches expected")
