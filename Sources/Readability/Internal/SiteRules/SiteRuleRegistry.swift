@@ -26,6 +26,7 @@ enum SiteRuleRegistry {
         let rules: [SerializationSiteRule.Type] = [
             AntirezProsePreRule.self,
             OneA23GalleryWrapperRule.self,
+            MksiteLeadImageFigureRule.self,
             TelegraphCaptionOnlyFigureRule.self,
             CityLabHeadlineTimestampRule.self,
             BuzzFeedLeadImageSuperlistRule.self,
@@ -212,6 +213,7 @@ enum SiteRuleRegistry {
                 BerthubNavigationChromeRule.self,
                 EngadgetSlideshowIconRule.self,
                 WikipediaLeadMetaNoiseRule.self,
+                MksiteLeadingPublicationRule.self,
                 FirefoxNightlyCommentFormRule.self,
                 SubstackDiscussionFooterRule.self,
                 MozillaCustomizeSyncSectionRule.self,

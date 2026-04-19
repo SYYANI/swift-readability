@@ -235,6 +235,38 @@ struct ArticleCleanerTests {
         #expect((try article.select("a[href=/wiki/Firefox]").isEmpty()) == true)
     }
 
+    @Test("prepArticle removes mksite leading publication cluster before lead media")
+    func testPrepArticleRemovesMksiteLeadingPublicationCluster() throws {
+        let html = """
+        <html>
+        <head>
+          <meta name="generator" content="mksite.c and my keyboard">
+        </head>
+        <body>
+          <main>
+            <b title="Publication"><time>2026-04-18</time></b> (<a href="/tags/programming/">Programming</a>)
+            <p></p>
+            <img src="/projects/mcufont/demo.png" alt="Some example text in this font.">
+            <center><a href="/projects/mcufont/mcufont.h">Font data (C header)</a></center>
+            <p>All characters fit within a 5 pixel square, and are intended to be drawn on a 6x6 grid. The design is based off of a compact pixel font and provides enough prose, commas, and descriptive detail to survive cleanup.</p>
+            <p>Five by five is actually big enough to draw most lowercase letters one pixel shorter, making them visually distinct from uppercase while keeping the fixture realistic.</p>
+          </main>
+        </body>
+        </html>
+        """
+        let doc = try SwiftSoup.parse(html, "https://maurycyz.com/projects/mcufont/")
+        let article = try doc.select("main").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        #expect((try article.select("b[title=Publication]").isEmpty()) == true)
+        #expect((try article.select("a[href*=tags]").isEmpty()) == true)
+        #expect((try article.select("img[src=\"/projects/mcufont/demo.png\"]").isEmpty()) == false)
+        #expect((try article.select("center a[href=\"/projects/mcufont/mcufont.h\"]").isEmpty()) == false)
+        #expect(article.children().first?.tagName().lowercased() == "img")
+    }
+
     @Test("prepArticle converts divs without block children to p")
     func testConvertDivsToP() throws {
         let html = "<article><div>Just text content</div></article>"

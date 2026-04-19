@@ -197,6 +197,57 @@ struct ReadabilityTests {
         #expect(result.byline == "Jane Doe")
     }
 
+    @Test("parse normalizes mksite lead image into full-width figure")
+    func testParseNormalizesMksiteLeadImageIntoFigure() throws {
+        let html = """
+        <html>
+        <head>
+          <title>5x5 Pixel font for tiny screens</title>
+          <meta name="generator" content="mksite.c and my keyboard">
+        </head>
+        <body>
+          <main>
+            <h1><em>5x5 Pixel font for tiny screens</em></h1>
+            <b title="Publication"><time>2026-04-18</time></b> (<a href="/tags/programming/">Programming</a>)
+            <p></p>
+            <img src="/projects/mcufont/demo.png" alt="Some example text in this font.">
+            <center><a href="/projects/mcufont/mcufont.h">Font data (C header)</a></center>
+            <p>All characters fit within a 5 pixel square, and are intended to be drawn on a 6x6 grid. The design is based off of a compact pixel font and provides enough prose, commas, and descriptive detail to survive extraction.</p>
+            <p>Five by five is actually big enough to draw most lowercase letters one pixel shorter, making them visually distinct from uppercase while keeping the sample comfortably above the minimum threshold.</p>
+            <p>The whole font takes up just 350 bytes of memory, which makes it suited to microcontrollers and keeps this synthetic fixture close to the original structure we want to protect.</p>
+          </main>
+        </body>
+        </html>
+        """
+
+        let readability = try Readability(
+            html: html,
+            baseURL: URL(string: "https://maurycyz.com/projects/mcufont/"),
+            options: ReadabilityOptions(charThreshold: 120)
+        )
+        let result = try readability.parse()
+        let doc = try SwiftSoup.parseBodyFragment(result.content)
+
+        guard let figure = try doc.select("div#readability-page-1.page > figure").first() else {
+            Issue.record("Expected a leading figure")
+            return
+        }
+
+        let img = try figure.select("> img").first()
+        let figcaption = try figure.select("> figcaption").first()
+        let imageStyle = (try? img?.attr("style")) ?? ""
+        let captionStyle = (try? figcaption?.attr("style")) ?? ""
+
+        #expect(img != nil)
+        #expect(figcaption != nil)
+        #expect((try doc.select("div#readability-page-1.page > center").isEmpty()) == true)
+        #expect(imageStyle.contains("width: 100%"))
+        #expect(imageStyle.contains("display: block"))
+        #expect(imageStyle.contains("height: auto"))
+        #expect(captionStyle.contains("text-align: center"))
+        #expect((try figcaption?.select("a[href=\"https://maurycyz.com/projects/mcufont/mcufont.h\"]").isEmpty()) == false)
+    }
+
     @Test("parse promotes readable noscript article fallback")
     func testParsePromotesReadableNoscriptFallback() throws {
         let html = """
