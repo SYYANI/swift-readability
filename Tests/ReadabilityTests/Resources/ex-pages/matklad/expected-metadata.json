@@ -1,0 +1,9 @@
+{
+  "byline" : null,
+  "dir" : null,
+  "excerpt" : "Property Based Testing and fuzzing are a deep and science-intensive topic. There are enough advanced techniques there for a couple of PhDs, a PBT daemon, and a client-server architecture. But I have this weird parlor-trick PBT library, implementable in a couple of hundred lines of code in one sitting.",
+  "lang" : "en-US",
+  "publishedTime" : null,
+  "siteName" : null,
+  "title" : "256 Lines or Less: Test Case Minimization"
+}

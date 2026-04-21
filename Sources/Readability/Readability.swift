@@ -1141,11 +1141,29 @@ public struct Readability {
         try trimParagraphBoundaryWhitespace(cleaned)
         try restoreFigureWrapperMetadataAttributes(cleaned)
 
-        doc.outputSettings().prettyPrint(pretty: false)
-
-        var serialized = try cleaned.html()
+        var serialized = try serializeWithDocumentSettings(cleaned)
         serialized = wrapOrphanRootCellContentIfNeeded(serialized)
         return serialized
+    }
+
+    private func serializeWithDocumentSettings(_ element: Element) throws -> String {
+        doc.outputSettings().prettyPrint(pretty: false)
+
+        // SwiftSoup uses default pretty-print settings for detached nodes.
+        // Attach the serialization clone temporarily so pre/code whitespace is
+        // emitted with the document's output settings.
+        let host = try doc.createElement("div")
+        try host.appendChild(element)
+        if let body = doc.body() {
+            try body.appendChild(host)
+        } else {
+            try doc.appendChild(host)
+        }
+        defer {
+            try? host.remove()
+        }
+
+        return try element.html()
     }
 
     private func wrapOrphanRootCellContentIfNeeded(_ html: String) -> String {

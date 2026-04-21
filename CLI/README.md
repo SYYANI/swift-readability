@@ -35,6 +35,7 @@ Mozilla comparison is optional. If Node.js is missing, Swift output is still gen
 swift run ReadabilityCLI fetch <url> --name <case>
 swift run ReadabilityCLI inspect <case>
 swift run ReadabilityCLI parse <case>
+swift run ReadabilityCLI probe-dom --html '<pre><code>...</code></pre>' --selector 'pre code'
 swift run ReadabilityCLI review <case>
 swift run ReadabilityCLI commit <case>
 swift run ReadabilityCLI clean [<case>]
@@ -123,6 +124,43 @@ Outputs:
 If Mozilla Readability.js returns `null` for a staged page, `parse` no longer fails the whole command. Swift outputs are still written, `mozilla-result.json` records that Mozilla considered the page unreadable, and `review` can still be used with the available columns.
 
 Use `parse` after `inspect` to compare actual rendered extraction results.
+
+### `probe-dom`
+
+Probes SwiftSoup parse, clone, and serialization behavior without running the full Readability pipeline.
+
+```bash
+swift run ReadabilityCLI probe-dom \
+  --html '<pre><code><span class="line">    return value</span></code></pre>' \
+  --selector 'span.line' \
+  --outer \
+  --strip-classes \
+  --visible-whitespace
+```
+
+For a staged case, read from `source.html`:
+
+```bash
+swift run ReadabilityCLI probe-dom \
+  --file .staging/matklad/source.html \
+  --selector 'pre code' \
+  --outer \
+  --strip-classes \
+  --visible-whitespace
+```
+
+Useful options:
+
+- `--selector <selector>` chooses the node to serialize. Selection happens before `--strip-classes`, so class-based selectors such as `span.line` remain usable.
+- `--outer` prints the selected element itself. Without it, the command prints inner HTML.
+- `--strip-classes` removes `class` attributes from the output subtree, matching the default Readability fixture shape more closely.
+- `--visible-whitespace` renders tabs, spaces, and newlines visibly as `⇥`, `·`, and `⏎`.
+- `--copy` serializes SwiftSoup's native `copy()` of the selected element.
+- `--manual-clone` serializes a manual clone that copies text with `TextNode.getWholeText()`.
+- `--document` parses the input as a full document instead of a body fragment.
+- `--pretty` enables SwiftSoup pretty printing before serialization.
+
+Use `probe-dom` when you need to isolate SwiftSoup behavior from extraction logic, especially for whitespace-sensitive HTML such as `<pre>` / `<code>` blocks, syntax-highlighted line spans, or small DOM fragments that are hard to reason about inside the full parser.
 
 ### `review`
 

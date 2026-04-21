@@ -64,7 +64,7 @@ private func printParseFollowUp(caseName: String, swiftSucceeded: Bool, mozillaS
 struct ReadabilityCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Issue Capture & Ground Truth Calibration Pipeline.",
-        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self, Inspect.self]
+        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self, Inspect.self, ProbeDOM.self]
     )
 }
 
@@ -98,6 +98,126 @@ private func loadStagedCaseURL(for caseName: String) -> URL? {
     let trimmedURL = metadata.url.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedURL.isEmpty else { return nil }
     return URL(string: trimmedURL)
+}
+
+// MARK: - probe-dom
+
+struct ProbeDOM: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "probe-dom",
+        abstract: "Probe SwiftSoup parsing and serialization behavior for small HTML fragments."
+    )
+
+    @Option(name: .long, help: "HTML fragment to parse.")
+    var html: String?
+
+    @Option(name: .long, help: "Path to an HTML file to parse.")
+    var file: String?
+
+    @Option(name: .long, help: "CSS selector to serialize. Defaults to body.")
+    var selector: String = "body"
+
+    @Flag(name: .long, help: "Parse as a full document instead of a body fragment.")
+    var document = false
+
+    @Flag(name: .long, help: "Enable SwiftSoup pretty printing before serialization.")
+    var pretty = false
+
+    @Flag(name: .long, help: "Remove class attributes before serialization.")
+    var stripClasses = false
+
+    @Flag(name: .long, help: "Serialize SwiftSoup's native copy() of the selected element.")
+    var copy = false
+
+    @Flag(name: .long, help: "Serialize a manual whitespace-preserving clone of the selected element.")
+    var manualClone = false
+
+    @Flag(name: .long, help: "Serialize the selected element itself instead of its inner HTML.")
+    var outer = false
+
+    @Flag(name: .long, help: "Render spaces, tabs, and newlines visibly in the output.")
+    var visibleWhitespace = false
+
+    mutating func run() throws {
+        guard (html == nil) != (file == nil) else {
+            throw ValidationError("Provide exactly one of --html or --file.")
+        }
+
+        let input: String
+        if let html {
+            input = html
+        } else if let file {
+            input = try String(contentsOfFile: file, encoding: .utf8)
+        } else {
+            throw ValidationError("Missing HTML input.")
+        }
+
+        let doc = document
+            ? try SwiftSoup.parse(input)
+            : try SwiftSoup.parseBodyFragment(input)
+        doc.outputSettings().prettyPrint(pretty: pretty)
+
+        guard let selected = try doc.select(selector).first() else {
+            throw ValidationError("Selector '\(selector)' did not match any element.")
+        }
+
+        guard !(copy && manualClone) else {
+            throw ValidationError("Use at most one of --copy or --manual-clone.")
+        }
+
+        let outputElement: Element
+        if copy {
+            guard let copied = selected.copy() as? Element else {
+                throw ValidationError("SwiftSoup copy() did not return an Element.")
+            }
+            outputElement = copied
+        } else if manualClone {
+            outputElement = try ProbeDOM.manualClone(selected, in: doc)
+        } else {
+            outputElement = selected
+        }
+
+        if stripClasses {
+            try ProbeDOM.stripClassAttributes(from: outputElement)
+        }
+
+        var output = outer ? try outputElement.outerHtml() : try outputElement.html()
+        if visibleWhitespace {
+            output = output
+                .replacingOccurrences(of: "\t", with: "⇥")
+                .replacingOccurrences(of: " ", with: "·")
+                .replacingOccurrences(of: "\n", with: "⏎\n")
+        }
+        print(output)
+    }
+
+    private static func stripClassAttributes(from element: Element) throws {
+        try element.removeAttr("class")
+        for child in element.children() {
+            try stripClassAttributes(from: child)
+        }
+    }
+
+    private static func manualClone(_ element: Element, in doc: Document) throws -> Element {
+        let clone = try doc.createElement(element.tagName())
+        if let attributes = element.getAttributes() {
+            for attr in attributes {
+                try clone.attr(attr.getKey(), attr.getValue())
+            }
+        }
+
+        for node in element.getChildNodes() {
+            if let childElement = node as? Element {
+                try clone.appendChild(manualClone(childElement, in: doc))
+            } else if let textNode = node as? TextNode {
+                try clone.appendChild(TextNode(textNode.getWholeText(), doc.location()))
+            } else if let copied = node.copy() as? Node {
+                try clone.appendChild(copied)
+            }
+        }
+
+        return clone
+    }
 }
 
 /// Detect Node.js on $PATH. The bridge script requires Node.js (CJS + jsdom).

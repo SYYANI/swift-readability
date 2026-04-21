@@ -371,6 +371,51 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
+    // MARK: matklad · 256 Lines or Less: Test Case Minimization (matklad.github.io)
+
+    @Test("matklad - Title matches expected")
+    func testMatkladTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("matklad - Byline matches expected")
+    func testMatkladByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("matklad - Excerpt matches expected")
+    func testMatkladExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("matklad - Content matches expected HTML")
+    func testMatkladContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+        #expect(result.content.contains("<span>    <span>return</span> .{ .entropy = entropy };</span>"))
+        #expect(result.content.contains("<span>        assert(<span>@typeInfo</span>(Int).int.signedness <span>==</span> .unsigned);</span>"))
+    }
+
     // MARK: maurycyz · 5x5 Pixel font for tiny screens (maurycyz.com)
 
     @Test("maurycyz - Title matches expected")
