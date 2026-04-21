@@ -11,10 +11,8 @@ enum DOMComparator {
     /// - Compare node descriptors, text content, and attributes
     static func compare(_ actualHTML: String, _ expectedHTML: String) -> (isEqual: Bool, diff: String) {
         do {
-            let actualParsed = try SwiftSoup.parse(actualHTML)
-            let expectedParsed = try SwiftSoup.parse(expectedHTML)
-            let actualDoc = try SwiftSoup.parse(actualParsed.outerHtml())
-            let expectedDoc = try SwiftSoup.parse(expectedParsed.outerHtml())
+            let actualDoc = try SwiftSoup.parse(actualHTML)
+            let expectedDoc = try SwiftSoup.parse(expectedHTML)
 
             guard let actualRoot = domRoot(actualDoc),
                   let expectedRoot = domRoot(expectedDoc) else {
@@ -62,14 +60,17 @@ enum DOMComparator {
 
                 if let actualTextNode = actualNode as? TextNode,
                    let expectedTextNode = expectedNode as? TextNode {
-                    let actualText = normalizeHTMLText(actualTextNode.getWholeText())
-                    let expectedText = normalizeHTMLText(expectedTextNode.getWholeText())
+                    let actualText = comparableText(for: actualTextNode)
+                    let expectedText = comparableText(for: expectedTextNode)
                     if actualText != expectedText {
                         let actualContext = (actualTextNode.parent() as? Element).flatMap { try? $0.outerHtml() } ?? ""
                         let expectedContext = (expectedTextNode.parent() as? Element).flatMap { try? $0.outerHtml() } ?? ""
+                        let preservesWhitespace = preservesWhitespace(actualTextNode) || preservesWhitespace(expectedTextNode)
+                        let expectedPreview = preservesWhitespace ? visibleWhitespace(expectedText) : expectedText
+                        let actualPreview = preservesWhitespace ? visibleWhitespace(actualText) : actualText
                         return (
                             false,
-                            "Text mismatch at index \(index). Expected: '\(preview(expectedText))', Actual: '\(preview(actualText))'. Expected context: '\(preview(expectedContext, limit: 220))'. Actual context: '\(preview(actualContext, limit: 220))'."
+                            "Text mismatch at index \(index). Expected: '\(preview(expectedPreview))', Actual: '\(preview(actualPreview))'. Expected context: '\(preview(expectedContext, limit: 220))'. Actual context: '\(preview(actualContext, limit: 220))'."
                         )
                     }
                 } else if let actualElement = actualNode as? Element,
@@ -117,6 +118,20 @@ enum DOMComparator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func comparableText(for textNode: TextNode) -> String {
+        let text = normalizeLineEndings(textNode.getWholeText())
+        if preservesWhitespace(textNode) {
+            return text
+        }
+        return normalizeHTMLText(text)
+    }
+
+    private static func normalizeLineEndings(_ str: String) -> String {
+        str
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
     private static func domRoot(_ doc: Document) -> Node? {
         if let root = doc.children().first {
             return root
@@ -142,7 +157,30 @@ enum DOMComparator {
 
     private static func isIgnorableTextNode(_ node: Node) -> Bool {
         guard let textNode = node as? TextNode else { return false }
+        if preservesWhitespace(textNode) {
+            return false
+        }
         return textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func preservesWhitespace(_ node: Node) -> Bool {
+        var current = node.parent()
+        while let element = current as? Element {
+            if preservesWhitespace(tagName: element.tagName()) {
+                return true
+            }
+            current = element.parent()
+        }
+        return false
+    }
+
+    private static func preservesWhitespace(tagName: String) -> Bool {
+        switch tagName.lowercased() {
+        case "pre", "textarea":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func attributesForNode(_ element: Element) -> [String: String] {
@@ -152,11 +190,46 @@ enum DOMComparator {
         for attr in attributes {
             let key = attr.getKey()
             if isValidXMLAttributeName(key) {
-                attrs[key] = attr.getValue()
+                attrs[key] = normalizedAttributeValue(attr.getValue(), forKey: key)
             }
         }
         return attrs
     }
+
+    private static func normalizedAttributeValue(_ value: String, forKey key: String) -> String {
+        if htmlBooleanAttributeNames.contains(key.lowercased()) {
+            return ""
+        }
+        return value
+    }
+
+    private static let htmlBooleanAttributeNames: Set<String> = [
+        "allowfullscreen",
+        "async",
+        "autofocus",
+        "autoplay",
+        "checked",
+        "controls",
+        "default",
+        "defer",
+        "disabled",
+        "formnovalidate",
+        "hidden",
+        "inert",
+        "ismap",
+        "itemscope",
+        "loop",
+        "multiple",
+        "muted",
+        "nomodule",
+        "novalidate",
+        "open",
+        "playsinline",
+        "readonly",
+        "required",
+        "reversed",
+        "selected"
+    ]
 
     private static func isValidXMLAttributeName(_ name: String) -> Bool {
         let pattern = "^[A-Za-z_][A-Za-z0-9._:-]*$"
@@ -166,6 +239,13 @@ enum DOMComparator {
     private static func preview(_ text: String, limit: Int = 80) -> String {
         if text.count <= limit { return text }
         return String(text.prefix(limit)) + "..."
+    }
+
+    private static func visibleWhitespace(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: " ", with: "·")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
 }
