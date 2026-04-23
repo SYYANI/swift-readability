@@ -51,6 +51,10 @@ protocol ExcerptSiteRule: SiteRule {
     static func apply(currentExcerpt: String?, articleContent: Element, sourceURL: URL?, document: Document) throws -> String?
 }
 
+protocol ShortContentFallbackSiteRule: SiteRule {
+    static func fallbackArticleContent(in document: Document, sourceURL: URL?) throws -> Element?
+}
+
 protocol CandidatePromotionSiteRule: SiteRule {
     static func promotedCandidate(from candidate: Element) -> Element?
 }

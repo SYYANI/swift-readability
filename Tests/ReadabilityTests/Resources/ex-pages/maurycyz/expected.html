@@ -1,0 +1,30 @@
+<div id="readability-page-1" class="page">
+ <figure>
+  <img src="https://maurycyz.com/projects/mcufont/demo.png" alt="Some example text in this font." style="display: block; width: 100%; height: auto" />
+  <figcaption style="text-align: center">
+   <a href="https://maurycyz.com/projects/mcufont/mcufont.h">Font data (C header)</a>
+  </figcaption>
+ </figure>     
+ <p> All characters fit within a 5 pixel square, and are intended to be drawn on a 6x6 grid. The design is based off of lcamtuf's 5x6 font-inline.h, which is itself loosely inspired by the ZX Spectrum's 8x8 font. </p>
+ <p><em>5x5 is the smallest size</em> that doesn't compromise legibility: </p> 
+ <ul> 
+  <li><b>2x2</b>: Impossible. 2<sup>2*2</sup> = 16 possible symbols</li> 
+  <li><b>3x3</b>: Practically unreadable.</li> 
+  <li><b>4x4</b>: Not enough to draw "E", "M", "N" or "W" properly.</li> 
+  <li><b>5x5</b>: This font.</li> 
+ </ul> 
+ <p> Five by five is actually big enough to draw most lowercase letters one pixel shorter, making them visually distinct from uppercase. </p>
+ <p><em>Narrower 4x5 and 3x5 dimensions are possible</em>, but would require sacrificing the M, dotted zero, and reduce U/V/Y distinctiveness. Three wide characters would also force the "e" and "g" to be the same height as uppercase letters. </p>
+ <p> There's no artistic reason to make all characters five wide just because a few must be... a using a constant width make programming a lot easier: The length of a string on screen is always 6 times the number of characters. </p>
+ <p> This also makes it much easier to build compact layouts: There's no need to worry that a number will overflow because "8978" is longer than "1111". </p>
+ <p><em>The whole font takes up just 350 bytes</em> of memory, which makes it ideally suited to 8-bit microcontrollers like the AVR128DA28 (16 kB of RAM) </p>
+ <p> These are cheap, have a low power consumption, can run across a wide voltage range and have more then enough computing power for most projects... but fall short on graphics: </p>
+ <p> Even a low-resolution 240x320 display has 75 thousand pixels: way to many to fit in the AVRs memory... and even if that wasn't a problem, the framerate would be quite bad. 15 FPS requires outputting a million pixels per second. </p>
+ <p> Except most projects don't need anywhere near that many pixels. A 160x128 or 128x64 OLED is more practical, and cheaper — but needs hand-drawn, pixel-efficient fonts to make good use of it. </p> 
+ <h2><em>Related</em>:</h2> 
+ <ul> 
+  <li><a href="https://lcamtuf.coredump.cx/soft/embedded/font-inline.h">https://lcamtuf.coredump.cx/soft/embedded/font-inline.h</a>: The original font.</li> 
+  <li><a href="https://moonbench.xyz/projects/tiny-pixel-art-fonts/">https://moonbench.xyz/projects/tiny-pixel-art-fonts/</a>: Even smaller fonts.</li> 
+  <li><a href="https://maurycyz.com/projects/mcufont/test.c">/projects/mcufont/test.c</a>: Program to preview the font.</li> 
+ </ul>  
+</div>

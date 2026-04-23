@@ -235,6 +235,38 @@ struct ArticleCleanerTests {
         #expect((try article.select("a[href=/wiki/Firefox]").isEmpty()) == true)
     }
 
+    @Test("prepArticle removes mksite leading publication cluster before lead media")
+    func testPrepArticleRemovesMksiteLeadingPublicationCluster() throws {
+        let html = """
+        <html>
+        <head>
+          <meta name="generator" content="mksite.c and my keyboard">
+        </head>
+        <body>
+          <main>
+            <b title="Publication"><time>2026-04-18</time></b> (<a href="/tags/programming/">Programming</a>)
+            <p></p>
+            <img src="/projects/mcufont/demo.png" alt="Some example text in this font.">
+            <center><a href="/projects/mcufont/mcufont.h">Font data (C header)</a></center>
+            <p>All characters fit within a 5 pixel square, and are intended to be drawn on a 6x6 grid. The design is based off of a compact pixel font and provides enough prose, commas, and descriptive detail to survive cleanup.</p>
+            <p>Five by five is actually big enough to draw most lowercase letters one pixel shorter, making them visually distinct from uppercase while keeping the fixture realistic.</p>
+          </main>
+        </body>
+        </html>
+        """
+        let doc = try SwiftSoup.parse(html, "https://maurycyz.com/projects/mcufont/")
+        let article = try doc.select("main").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        #expect((try article.select("b[title=Publication]").isEmpty()) == true)
+        #expect((try article.select("a[href*=tags]").isEmpty()) == true)
+        #expect((try article.select("img[src=\"/projects/mcufont/demo.png\"]").isEmpty()) == false)
+        #expect((try article.select("center a[href=\"/projects/mcufont/mcufont.h\"]").isEmpty()) == false)
+        #expect(article.children().first?.tagName().lowercased() == "img")
+    }
+
     @Test("prepArticle converts divs without block children to p")
     func testConvertDivsToP() throws {
         let html = "<article><div>Just text content</div></article>"
@@ -422,6 +454,95 @@ struct ArticleCleanerTests {
 
         #expect((try article.text().lowercased().contains("view graphic")) == false)
         #expect(try article.text().contains("Map: Flow of foreign fighters to Syria"))
+    }
+
+    @Test("prepArticle promotes floated paragraph-leading image to figure")
+    func testPrepArticlePromotesLeadingFloatedImage() throws {
+        let html = """
+        <article>
+            <p><img src="https://example.com/lead.jpg" style="float: left; margin: 0 12px 12px 0;">Leading text.</p>
+        </article>
+        """
+        let doc = try SwiftSoup.parseBodyFragment(html)
+        let article = try doc.select("article").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        let children = article.children()
+        #expect(children.count == 2)
+        #expect(children[0].tagName().lowercased() == "figure")
+        #expect(children[1].tagName().lowercased() == "p")
+        #expect((try article.select("figure > img[src=\"https://example.com/lead.jpg\"]").isEmpty()) == false)
+        #expect(try children[1].text() == "Leading text.")
+    }
+
+    @Test("prepArticle splits paragraph around floated middle image")
+    func testPrepArticleSplitsParagraphAroundMiddleFloatedImage() throws {
+        let html = """
+        <article>
+            <p>Before <img src="https://example.com/middle.jpg" style="display:block; float:right; margin-left: 12px;"> after.</p>
+        </article>
+        """
+        let doc = try SwiftSoup.parseBodyFragment(html)
+        let article = try doc.select("article").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        let children = article.children()
+        #expect(children.count == 3)
+        #expect(children[0].tagName().lowercased() == "p")
+        #expect(children[1].tagName().lowercased() == "figure")
+        #expect(children[2].tagName().lowercased() == "p")
+        #expect(try children[0].text() == "Before")
+        #expect(try children[2].text() == "after.")
+        #expect((try article.select("figure > img[src=\"https://example.com/middle.jpg\"]").isEmpty()) == false)
+    }
+
+    @Test("prepArticle preserves inline wrappers when promoting floated image")
+    func testPrepArticlePreservesInlineWrapperTextAfterPromotingFloatedImage() throws {
+        let html = """
+        <article>
+            <p><strong><img src="https://example.com/name.jpg" style="float: left;">John Calhoun:</strong>&nbsp;Hello world.</p>
+        </article>
+        """
+        let doc = try SwiftSoup.parseBodyFragment(html)
+        let article = try doc.select("article").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        let children = article.children()
+        #expect(children.count == 2)
+        #expect(children[0].tagName().lowercased() == "figure")
+        #expect(children[1].tagName().lowercased() == "p")
+        #expect((try children[1].select("strong").first()?.text()) == "John Calhoun:")
+        let normalizedText = try children[1].text()
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(normalizedText == "John Calhoun: Hello world.")
+    }
+
+    @Test("prepArticle promotes floated paragraph-trailing image to figure")
+    func testPrepArticlePromotesTrailingFloatedImage() throws {
+        let html = """
+        <article>
+            <p>Trailing text <img src="https://example.com/end.jpg" style="float:right"></p>
+        </article>
+        """
+        let doc = try SwiftSoup.parseBodyFragment(html)
+        let article = try doc.select("article").first()!
+
+        let cleaner = ArticleCleaner(options: .default)
+        try cleaner.prepArticle(article)
+
+        let children = article.children()
+        #expect(children.count == 2)
+        #expect(children[0].tagName().lowercased() == "p")
+        #expect(children[1].tagName().lowercased() == "figure")
+        #expect(try children[0].text() == "Trailing text")
+        #expect((try article.select("figure > img[src=\"https://example.com/end.jpg\"]").isEmpty()) == false)
     }
 
     // MARK: - cleanStyles Tests

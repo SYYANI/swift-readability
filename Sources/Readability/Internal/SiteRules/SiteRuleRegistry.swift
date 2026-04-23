@@ -25,6 +25,8 @@ enum SiteRuleRegistry {
     static func applySerializationRules(to articleContent: Element) throws {
         let rules: [SerializationSiteRule.Type] = [
             AntirezProsePreRule.self,
+            OneA23GalleryWrapperRule.self,
+            MksiteLeadImageFigureRule.self,
             TelegraphCaptionOnlyFigureRule.self,
             CityLabHeadlineTimestampRule.self,
             BuzzFeedLeadImageSuperlistRule.self,
@@ -101,6 +103,29 @@ enum SiteRuleRegistry {
         return current
     }
 
+    static func shortContentFallbackArticle(
+        in document: Document,
+        sourceURL: URL?,
+        inspectionContext: InspectionContext? = nil
+    ) throws -> Element? {
+        let rules: [ShortContentFallbackSiteRule.Type] = [
+            OneA23GalleryShortArticleRule.self
+        ]
+        for rule in rules {
+            if let fallback = try rule.fallbackArticleContent(in: document, sourceURL: sourceURL) {
+                inspectionContext?.recordSiteRuleDecision(
+                    phase: "short-content-fallback",
+                    ruleID: rule.id,
+                    target: fallback,
+                    action: "recover",
+                    reason: "site-specific-short-article"
+                )
+                return fallback
+            }
+        }
+        return nil
+    }
+
     static func promotedCandidate(from candidate: Element) -> Element? {
         let rules: [CandidatePromotionSiteRule.Type] = [
             QuantaLeadCandidatePromotionRule.self,
@@ -119,7 +144,8 @@ enum SiteRuleRegistry {
 
     static func shouldKeepCandidate(_ current: Element) -> Bool {
         let rules: [CandidateProtectionSiteRule.Type] = [
-            CityLabArticleContainerCandidateRule.self
+            CityLabArticleContainerCandidateRule.self,
+            MacRumorsMainContentCandidateRule.self
         ]
         for rule in rules where rule.shouldKeepCandidate(current) {
             return true
@@ -184,9 +210,11 @@ enum SiteRuleRegistry {
                 MedicalNewsTodayRelatedInlineRule.self,
                 CNETPlaylistOverlayRule.self,
                 CityLabPromoSignupRule.self,
+                MacRumorsArticleChromeRule.self,
                 BerthubNavigationChromeRule.self,
                 EngadgetSlideshowIconRule.self,
                 WikipediaLeadMetaNoiseRule.self,
+                MksiteLeadingPublicationRule.self,
                 FirefoxNightlyCommentFormRule.self,
                 SubstackDiscussionFooterRule.self,
                 MozillaCustomizeSyncSectionRule.self,

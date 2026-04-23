@@ -34,7 +34,8 @@ Mozilla comparison is optional. If Node.js is missing, Swift output is still gen
 ```bash
 swift run ReadabilityCLI fetch <url> --name <case>
 swift run ReadabilityCLI inspect <case>
-swift run ReadabilityCLI parse <case>
+swift run ReadabilityCLI parse <case> [--mozilla-timeout <seconds>]
+swift run ReadabilityCLI probe-dom --html '<pre><code>...</code></pre>' --selector 'pre code'
 swift run ReadabilityCLI review <case>
 swift run ReadabilityCLI commit <case>
 swift run ReadabilityCLI clean [<case>]
@@ -107,6 +108,12 @@ Runs Swift Readability on a staged case and, when Node.js is available, also run
 swift run ReadabilityCLI parse 1a23-1
 ```
 
+The Mozilla bridge has a default timeout of 30 seconds. Override it when diagnosing unusually large pages:
+
+```bash
+swift run ReadabilityCLI parse 1a23-1 --mozilla-timeout 60
+```
+
 Outputs:
 
 - `swift-out.html`
@@ -122,7 +129,46 @@ Outputs:
 
 If Mozilla Readability.js returns `null` for a staged page, `parse` no longer fails the whole command. Swift outputs are still written, `mozilla-result.json` records that Mozilla considered the page unreadable, and `review` can still be used with the available columns.
 
+If the Mozilla bridge exits with an error, emits invalid JSON, or exceeds `--mozilla-timeout`, `parse` writes a structured failure object to `mozilla-result.json` and continues to the usual follow-up instructions instead of hanging or failing the whole command. The bridge stdout and stderr are redirected through temporary files in the staged case directory to avoid pipe backpressure on large Mozilla JSON output.
+
 Use `parse` after `inspect` to compare actual rendered extraction results.
+
+### `probe-dom`
+
+Probes SwiftSoup parse, clone, and serialization behavior without running the full Readability pipeline.
+
+```bash
+swift run ReadabilityCLI probe-dom \
+  --html '<pre><code><span class="line">    return value</span></code></pre>' \
+  --selector 'span.line' \
+  --outer \
+  --strip-classes \
+  --visible-whitespace
+```
+
+For a staged case, read from `source.html`:
+
+```bash
+swift run ReadabilityCLI probe-dom \
+  --file .staging/matklad/source.html \
+  --selector 'pre code' \
+  --outer \
+  --strip-classes \
+  --visible-whitespace
+```
+
+Useful options:
+
+- `--selector <selector>` chooses the node to serialize. Selection happens before `--strip-classes`, so class-based selectors such as `span.line` remain usable.
+- `--outer` prints the selected element itself. Without it, the command prints inner HTML.
+- `--strip-classes` removes `class` attributes from the output subtree, matching the default Readability fixture shape more closely.
+- `--visible-whitespace` renders tabs, spaces, and newlines visibly as `⇥`, `·`, and `⏎`.
+- `--copy` serializes SwiftSoup's native `copy()` of the selected element.
+- `--manual-clone` serializes a manual clone that copies text with `TextNode.getWholeText()`.
+- `--document` parses the input as a full document instead of a body fragment.
+- `--pretty` enables SwiftSoup pretty printing before serialization.
+
+Use `probe-dom` when you need to isolate SwiftSoup behavior from extraction logic, especially for whitespace-sensitive HTML such as `<pre>` / `<code>` blocks, syntax-highlighted line spans, or small DOM fragments that are hard to reason about inside the full parser.
 
 ### `review`
 

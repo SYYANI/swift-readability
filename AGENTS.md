@@ -53,13 +53,29 @@ Use backticks `` ` `` for:
 
 **Unless there are exceptional circumstances (e.g., implementation is prohibitively difficult or unreasonably complex), the default answer is always: replicate the original `Mozilla Readability.js` logic and output as closely as possible.**
 
-This is what "porting" means. We are creating a Swift version that produces **identical output** to the original JavaScript implementation.
+This remains the default meaning of "porting": Mozilla parity is the baseline and the first reference point for implementation decisions.
 
 **Guidelines:**
 - When in doubt, copy Mozilla's implementation exactly
 - If we MUST deviate, document why in code comments
 - Improvements should be opt-in via `ReadabilityOptions`, never default behavior
 - If downstream integration requires stable serialization hints, keep them narrow, explicit, and documented as an output contract instead of changing generic extraction semantics
+
+#### Ex-pages Quality Bar
+
+For curated `ex-pages` fixtures, do **not** assume Mozilla output is automatically the desired final target.
+
+- Treat Mozilla output as the starting reference, not the ceiling
+- If Swift output is clearly better for the intended reading experience, prefer the better result
+- Keep such deviations narrow, intentional, and backed by a concrete captured case
+- Document the intended target in fixture expectations instead of forcing ex-pages back to Mozilla when Mozilla retains obvious noise or misses useful content
+- Avoid broad heuristic changes just to satisfy a single ex-pages fixture; prefer targeted logic and explicit rationale
+
+This means the project is no longer aiming for Mozilla-identical output in every curated case. The goal is:
+
+1. Preserve Mozilla compatibility as the default behavior and regression baseline
+2. Improve selected real captured cases where the desired output is clearly better than Mozilla
+3. Encode those intentional improvements in `ex-pages` fixtures and supporting documentation
 
 **Examples:**
 - WRONG: Custom title cleaning that removes all separators

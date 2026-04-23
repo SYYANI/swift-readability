@@ -5,10 +5,17 @@ import SwiftSoup
 /// Implements Mozilla Readability.js _prepArticle and related methods
 final class ArticleCleaner {
     private let options: ReadabilityOptions
+    private let allowConditionalCleaning: Bool
     private let debugSnapshot: ((String, Element) -> Void)?
+    private var dataTableNodeIDs: Set<ObjectIdentifier> = []
 
-    init(options: ReadabilityOptions, debugSnapshot: ((String, Element) -> Void)? = nil) {
+    init(
+        options: ReadabilityOptions,
+        allowConditionalCleaning: Bool = true,
+        debugSnapshot: ((String, Element) -> Void)? = nil
+    ) {
         self.options = options
+        self.allowConditionalCleaning = allowConditionalCleaning
         self.debugSnapshot = debugSnapshot
     }
 
@@ -26,20 +33,40 @@ final class ArticleCleaner {
     /// Prepare article content for output
     /// This is the main entry point for article cleaning
     func prepArticle(_ articleContent: Element) throws {
+        dataTableNodeIDs.removeAll(keepingCapacity: true)
+
         // Remove unwanted elements FIRST (before cleanStyles removes class attributes)
         try removeUnwantedElements(articleContent)
         debugSnapshot?("prep.removeUnwantedElements", articleContent)
 
+        // Preserve floated inline images as standalone blocks before styles are stripped.
+        try promoteFloatedInlineImagesToFigures(articleContent)
+        debugSnapshot?("prep.promoteFloatedInlineImages", articleContent)
+
         // Clean styles
         try cleanStyles(articleContent)
         debugSnapshot?("prep.cleanStyles", articleContent)
+
+        // Match Mozilla _prepArticle data-table protection before conditional cleanup.
+        try markDataTables(articleContent)
+        debugSnapshot?("prep.markDataTables", articleContent)
 
         // Fix lazy images
         try fixLazyImages(articleContent)
         try restoreFigureWrapperMetadataAttributes(articleContent)
         debugSnapshot?("prep.fixLazyImages", articleContent)
 
+        // Match Mozilla _prepArticle conditional cleanup only when
+        // FLAG_CLEAN_CONDITIONALLY is still active for the accepted pass.
+        if allowConditionalCleaning {
+            try cleanConditionally(articleContent, tag: "form")
+            try cleanConditionally(articleContent, tag: "fieldset")
+        }
+        debugSnapshot?("prep.cleanConditionally.formFieldset", articleContent)
+
         // Match Mozilla prep for form controls.
+        try removeShortShareElements(articleContent)
+        debugSnapshot?("prep.removeShortShareElements", articleContent)
         try cleanElementsByTag(articleContent, tags: ["input", "textarea", "select", "button"])
         debugSnapshot?("prep.cleanFormControls", articleContent)
         try removeShortLinkHeavyDivs(articleContent)
@@ -54,6 +81,12 @@ final class ArticleCleaner {
         debugSnapshot?("prep.removeEmptyContainerDivs", articleContent)
         try removeShortRoleNoteCallouts(articleContent)
         debugSnapshot?("prep.removeShortRoleNoteCallouts", articleContent)
+        if allowConditionalCleaning {
+            try cleanConditionally(articleContent, tag: "table")
+            try cleanConditionally(articleContent, tag: "ul")
+            try cleanConditionally(articleContent, tag: "div")
+        }
+        debugSnapshot?("prep.cleanConditionally.tableUlDiv", articleContent)
 
         // Convert DIVs to Ps where appropriate
         try convertDivsToParagraphs(articleContent)
@@ -67,9 +100,25 @@ final class ArticleCleaner {
     /// Convert DIV elements to P elements where appropriate
     /// This implements Mozilla's div-to-p conversion logic
     private func convertDivsToParagraphs(_ element: Element) throws {
+        let marker = "data-readability-root-marker"
+        let token = UUID().uuidString
+        let hadMarker = element.hasAttr(marker)
+        let previousMarker = hadMarker ? ((try? element.attr(marker)) ?? "") : nil
+        try element.attr(marker, token)
+        defer {
+            if let previousMarker {
+                try? element.attr(marker, previousMarker)
+            } else {
+                try? element.removeAttr(marker)
+            }
+        }
+
         let divs = try element.select("div")
 
         for div in divs {
+            if ((try? div.attr(marker)) ?? "") == token {
+                continue
+            }
             // Skip if already converted
             guard div.tagName().lowercased() == "div" else { continue }
             // Skip detached top-level container created after extraction.
@@ -280,6 +329,206 @@ final class ArticleCleaner {
 
     // MARK: - Style Cleaning
 
+    /// Promote inline images that rely on explicit float styles into standalone
+    /// `<figure>` blocks so they do not collapse into paragraph-leading inline
+    /// images once presentational styles are removed.
+    private func promoteFloatedInlineImagesToFigures(_ root: Element) throws {
+        while let image = try nextFloatedInlineImage(in: root) {
+            guard let host = nearestFloatedImageHost(for: image), host.parent() != nil else {
+                continue
+            }
+            try promoteFloatedInlineImage(image, from: host)
+        }
+    }
+
+    private func nextFloatedInlineImage(in root: Element) throws -> Element? {
+        for image in try root.select("img[style]") {
+            guard image.parent() != nil else { continue }
+            guard isFloatedInlineImage(image) else { continue }
+            guard !hasAncestorTag(image, tag: "figure") else { continue }
+            guard nearestFloatedImageHost(for: image) != nil else { continue }
+            return image
+        }
+
+        return nil
+    }
+
+    private func isFloatedInlineImage(_ image: Element) -> Bool {
+        let style = ((try? image.attr("style")) ?? "")
+        return style.range(
+            of: "(^|;)\\s*float\\s*:\\s*(left|right)\\b",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func nearestFloatedImageHost(for image: Element) -> Element? {
+        let supportedHosts: Set<String> = ["p", "div", "li", "blockquote"]
+        var current = image.parent()
+
+        while let node = current {
+            let tagName = node.tagName().lowercased()
+            if supportedHosts.contains(tagName) {
+                return node
+            }
+            if ["article", "section", "main", "body"].contains(tagName) {
+                return nil
+            }
+            current = node.parent()
+        }
+
+        return nil
+    }
+
+    private func promoteFloatedInlineImage(_ image: Element, from host: Element) throws {
+        guard let parent = host.parent() else { return }
+
+        let doc = host.ownerDocument() ?? Document("")
+        let path = buildAncestorPath(from: host, to: image)
+        guard !path.isEmpty else { return }
+
+        let split = try splitElement(host, along: path, at: 0)
+        let figure = try doc.createElement("figure")
+        let promotedImage: Element
+        if let copiedImage = image.copy() as? Element {
+            promotedImage = copiedImage
+        } else {
+            promotedImage = try DOMHelpers.cloneElement(image, in: doc)
+        }
+        try figure.appendChild(promotedImage)
+
+        if let before = split.before {
+            try host.before(before)
+        }
+        try host.before(figure)
+        if let after = split.after {
+            try host.before(after)
+        }
+
+        if parent === host.parent() {
+            try host.remove()
+        }
+    }
+
+    private func buildAncestorPath(from host: Element, to target: Element) -> [Element] {
+        var path: [Element] = [target]
+        var current = target.parent()
+
+        while let node = current {
+            path.append(node)
+            if node === host {
+                return path.reversed()
+            }
+            current = node.parent()
+        }
+
+        return []
+    }
+
+    private func splitElement(
+        _ element: Element,
+        along path: [Element],
+        at index: Int
+    ) throws -> (before: Element?, after: Element?) {
+        let beforeClone = try clonedElementShell(for: element)
+        let afterClone = try clonedElementShell(for: element)
+        let nextOnPath = index + 1 < path.count ? path[index + 1] : nil
+        var hasCrossedTarget = false
+
+        for child in element.getChildNodes() {
+            if let nextOnPath, child === nextOnPath {
+                if index + 1 == path.count - 1 {
+                    hasCrossedTarget = true
+                    continue
+                }
+
+                if let childElement = child as? Element {
+                    let splitChild = try splitElement(childElement, along: path, at: index + 1)
+                    if let beforeChild = splitChild.before {
+                        try beforeClone.appendChild(beforeChild)
+                    }
+                    if let afterChild = splitChild.after {
+                        try afterClone.appendChild(afterChild)
+                    }
+                    hasCrossedTarget = true
+                    continue
+                }
+            }
+
+            let clonedChild = child.copy() as! Node
+            if hasCrossedTarget {
+                try afterClone.appendChild(clonedChild)
+            } else {
+                try beforeClone.appendChild(clonedChild)
+            }
+        }
+
+        try pruneEmptyDescendants(in: beforeClone)
+        try pruneEmptyDescendants(in: afterClone)
+
+        return (
+            before: hasMeaningfulContent(beforeClone) ? beforeClone : nil,
+            after: hasMeaningfulContent(afterClone) ? afterClone : nil
+        )
+    }
+
+    private func clonedElementShell(for element: Element) throws -> Element {
+        let doc = element.ownerDocument() ?? Document("")
+        let clone = try doc.createElement(element.tagName())
+        try DOMHelpers.copyAttributes(from: element, to: clone)
+        return clone
+    }
+
+    private func pruneEmptyDescendants(in element: Element) throws {
+        for child in element.children().reversed() {
+            try pruneEmptyDescendants(in: child)
+            if !hasMeaningfulContent(child) {
+                try child.remove()
+            }
+        }
+    }
+
+    private func hasMeaningfulContent(_ node: Node) -> Bool {
+        switch node {
+        case let textNode as TextNode:
+            return !textNode.getWholeText()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        case let dataNode as DataNode:
+            return !dataNode.getWholeData()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        case _ as Comment:
+            return false
+        case let element as Element:
+            if ["img", "picture", "video", "audio", "svg"].contains(element.tagName().lowercased()) {
+                return true
+            }
+            return element.getChildNodes().contains { hasMeaningfulContent($0) }
+        default:
+            return !node.nodeName().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func shouldPreserveFootnoteSection(_ element: Element) -> Bool {
+        let className = ((try? element.className()) ?? "").lowercased()
+        let id = element.id().lowercased()
+        let dataType = ((try? element.attr("data-type")) ?? "").lowercased()
+        let identity = className + " " + id + " " + dataType
+        guard identity.contains("footnote") else {
+            return false
+        }
+
+        if (try? element.select("li[id^='fn:']").isEmpty()) == false {
+            return true
+        }
+
+        if (try? element.select("a[href^='#fnref:']").isEmpty()) == false {
+            return true
+        }
+
+        return false
+    }
+
     /// Remove style attributes and presentational attributes
     private func cleanStyles(_ element: Element) throws {
         // Match Mozilla: keep SVG subtree untouched.
@@ -287,30 +536,15 @@ final class ArticleCleaner {
             return
         }
 
-        if !options.keepClasses {
-            // Remove presentational attributes
-            for attr in Configuration.presentationalAttributes {
-                try element.removeAttr(attr)
-            }
+        // Mozilla only removes presentational attributes here.
+        for attr in Configuration.presentationalAttributes {
+            try element.removeAttr(attr)
+        }
 
-            // Remove deprecated size attributes for specific elements
-            if Configuration.deprecatedSizeAttributeElems.contains(element.tagName().uppercased()) {
-                try element.removeAttr("width")
-                try element.removeAttr("height")
-            }
-
-            // Clean classes (keep only preserved classes)
-            let className = try element.className()
-            let preservedClasses = Configuration.classesToPreserve + options.classesToPreserve
-            let newClasses = className.split(separator: " ").filter { cls in
-                preservedClasses.contains(String(cls))
-            }.joined(separator: " ")
-
-            if newClasses.isEmpty {
-                try element.removeAttr("class")
-            } else {
-                try element.attr("class", newClasses)
-            }
+        // Match Mozilla's deprecated width/height stripping for specific tags.
+        if Configuration.deprecatedSizeAttributeElems.contains(element.tagName().uppercased()) {
+            try element.removeAttr("width")
+            try element.removeAttr("height")
         }
 
         // Recursively clean children
@@ -611,6 +845,37 @@ final class ArticleCleaner {
         try element.select(selector).remove()
     }
 
+    private func removeShortShareElements(_ articleContent: Element) throws {
+        let shareElementThreshold = options.charThreshold
+
+        for topCandidate in articleContent.children() {
+            let candidates = try topCandidate.select("[class*=share], [id*=share], [class*=sharedaddy], [id*=sharedaddy]")
+            for node in candidates.reversed() {
+                if isSameElement(node, topCandidate) {
+                    continue
+                }
+
+                let matchString = ((((try? node.className()) ?? "") + " " + node.id()))
+                    .lowercased()
+                guard hasShareElementMarker(matchString) else {
+                    continue
+                }
+
+                let textLength = try DOMHelpers.getInnerText(node).count
+                if textLength < shareElementThreshold {
+                    try node.remove()
+                }
+            }
+        }
+    }
+
+    private func hasShareElementMarker(_ matchString: String) -> Bool {
+        matchString.range(
+            of: "(^|[\\s_-])(share|sharedaddy)([\\s_-]|$)",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
     /// Remove compact, link-heavy metadata/action blocks that commonly appear
     /// near hero images (e.g. author/date/follow controls) and are not article body.
     private func removeShortLinkHeavyDivs(_ root: Element) throws {
@@ -771,17 +1036,67 @@ final class ArticleCleaner {
     }
 
     private func cleanConditionally(_ root: Element, tag: String) throws {
+        let marker = "data-readability-root-marker"
+        let token = UUID().uuidString
+        let hadMarker = root.hasAttr(marker)
+        let previousMarker = hadMarker ? ((try? root.attr(marker)) ?? "") : nil
+        try root.attr(marker, token)
+        defer {
+            if let previousMarker {
+                try? root.attr(marker, previousMarker)
+            } else {
+                try? root.removeAttr(marker)
+            }
+        }
+
         let nodes = try root.select(tag)
         for node in nodes.reversed() {
+            if ((try? node.attr(marker)) ?? "") == token {
+                continue
+            }
             guard node.parent() != nil else { continue }
+
+            let dataType = ((try? node.attr("data-type")) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if dataType == "footnotes" || dataType == "footnote" {
+                continue
+            }
+
+            if shouldPreserveFootnoteSection(node) {
+                continue
+            }
+
+            let innerText = try DOMHelpers.getInnerText(node)
+            var isList = tag == "ul" || tag == "ol"
+            if !isList && !innerText.isEmpty {
+                var listLength = 0
+                for list in try node.select("ul, ol") {
+                    listLength += try DOMHelpers.getInnerText(list).count
+                }
+                isList = Double(listLength) / Double(innerText.count) > 0.9
+            }
+
+            if tag == "table" && isDataTable(node) {
+                continue
+            }
+
+            if hasAncestorTag(node, tag: "table", predicate: isDataTable) {
+                continue
+            }
 
             if hasAncestorTag(node, tag: "code") {
                 continue
             }
 
-            let hasHeadlineSchema = (try? node.select("[itemprop=headline]").isEmpty()) == false
-            let hasPublishedSchema = (try? node.select("meta[itemprop=datePublished], meta[itemprop=dateModified], time").isEmpty()) == false
-            if hasHeadlineSchema || hasPublishedSchema {
+            var containsDataTable = false
+            for table in try node.select("table") {
+                if isDataTable(table) {
+                    containsDataTable = true
+                    break
+                }
+            }
+            if containsDataTable {
                 continue
             }
 
@@ -804,12 +1119,15 @@ final class ArticleCleaner {
             var embedCount = 0
             for embed in try node.select("object, embed, iframe") {
                 if isAllowedVideoEmbed(embed) {
-                    continue
+                    embedCount = -1
+                    break
                 }
                 embedCount += 1
             }
+            if embedCount == -1 {
+                continue
+            }
 
-            let innerText = try DOMHelpers.getInnerText(node)
             if isAdvertisementWord(innerText) || isLoadingWord(innerText) {
                 try node.remove()
                 continue
@@ -826,13 +1144,13 @@ final class ArticleCleaner {
             var shouldRemove = false
             if !isFigureChild && img > 1 && Double(p) / Double(img) < 0.5 {
                 shouldRemove = true
-            } else if li > p {
+            } else if !isList && li > p {
                 shouldRemove = true
             } else if input > p / 3 {
                 shouldRemove = true
-            } else if !isFigureChild && headingDensity < 0.9 && contentLength < 25 && (img == 0 || img > 2) && linkDensity > 0 {
+            } else if !isList && !isFigureChild && headingDensity < 0.9 && contentLength < 25 && (img == 0 || img > 2) && linkDensity > 0 {
                 shouldRemove = true
-            } else if weight < 25 && linkDensity > (0.2 + options.linkDensityModifier) {
+            } else if !isList && weight < 25 && linkDensity > (0.2 + options.linkDensityModifier) {
                 shouldRemove = true
             } else if weight >= 25 && linkDensity > (0.5 + options.linkDensityModifier) {
                 shouldRemove = true
@@ -840,6 +1158,23 @@ final class ArticleCleaner {
                 shouldRemove = true
             } else if img == 0 && textDensity == 0 {
                 shouldRemove = true
+            }
+
+            if isList && shouldRemove {
+                var hasComplexListItems = false
+                for child in node.children() {
+                    if child.children().count > 1 {
+                        hasComplexListItems = true
+                        break
+                    }
+                }
+
+                if !hasComplexListItems {
+                    let liCount = try node.select("li").count
+                    if img == liCount {
+                        shouldRemove = false
+                    }
+                }
             }
 
             if shouldRemove {
@@ -872,16 +1207,130 @@ final class ArticleCleaner {
         return Double(childrenLength) / Double(textLength)
     }
 
-    private func hasAncestorTag(_ element: Element, tag: String) -> Bool {
+    private func hasAncestorTag(
+        _ element: Element,
+        tag: String,
+        predicate: ((Element) -> Bool)? = nil
+    ) -> Bool {
         var current = element.parent()
         let target = tag.lowercased()
         while let node = current {
-            if node.tagName().lowercased() == target {
+            if node.tagName().lowercased() == target,
+               predicate?(node) ?? true {
                 return true
             }
             current = node.parent()
         }
         return false
+    }
+
+    private func isSameElement(_ lhs: Element, _ rhs: Element) -> Bool {
+        if lhs.equals(rhs) {
+            return true
+        }
+
+        let lhsTag = lhs.tagName().lowercased()
+        let rhsTag = rhs.tagName().lowercased()
+        guard lhsTag == rhsTag else {
+            return false
+        }
+
+        let lhsID = lhs.id()
+        let rhsID = rhs.id()
+        if !lhsID.isEmpty || !rhsID.isEmpty {
+            return lhsID == rhsID
+        }
+
+        let lhsSelector = try? lhs.cssSelector()
+        let rhsSelector = try? rhs.cssSelector()
+        return lhsSelector == rhsSelector
+    }
+
+    private func markDataTables(_ root: Element) throws {
+        let marker = "data-readability-root-marker"
+        let token = UUID().uuidString
+        let hadMarker = root.hasAttr(marker)
+        let previousMarker = hadMarker ? ((try? root.attr(marker)) ?? "") : nil
+        try root.attr(marker, token)
+        defer {
+            if let previousMarker {
+                try? root.attr(marker, previousMarker)
+            } else {
+                try? root.removeAttr(marker)
+            }
+        }
+
+        for table in try root.select("table") {
+            if ((try? table.attr(marker)) ?? "") == token {
+                continue
+            }
+            if ((try? table.attr("role")) ?? "") == "presentation" {
+                continue
+            }
+
+            if ((try? table.attr("datatable")) ?? "") == "0" {
+                continue
+            }
+
+            if !((try? table.attr("summary")) ?? "").isEmpty {
+                dataTableNodeIDs.insert(ObjectIdentifier(table))
+                continue
+            }
+
+            if let caption = try table.select("caption").first(),
+               !caption.getChildNodes().isEmpty {
+                dataTableNodeIDs.insert(ObjectIdentifier(table))
+                continue
+            }
+
+            if (try? table.select("col, colgroup, tfoot, thead, th").isEmpty()) == false {
+                dataTableNodeIDs.insert(ObjectIdentifier(table))
+                continue
+            }
+
+            var hasNestedTable = false
+            for nestedTable in try table.select("table") {
+                if ObjectIdentifier(nestedTable) != ObjectIdentifier(table) {
+                    hasNestedTable = true
+                    break
+                }
+            }
+            if hasNestedTable {
+                continue
+            }
+
+            let size = try getRowAndColumnCount(table)
+            if size.columns == 1 || size.rows == 1 {
+                continue
+            }
+
+            if size.rows >= 10 || size.columns > 4 || size.rows * size.columns > 10 {
+                dataTableNodeIDs.insert(ObjectIdentifier(table))
+            }
+        }
+    }
+
+    private func getRowAndColumnCount(_ table: Element) throws -> (rows: Int, columns: Int) {
+        var rows = 0
+        var columns = 0
+
+        for row in try table.select("tr") {
+            let rowspan = Int((try? row.attr("rowspan")) ?? "") ?? 0
+            rows += max(rowspan, 1)
+
+            var columnsInThisRow = 0
+            for cell in try row.select("td") {
+                let colspan = Int((try? cell.attr("colspan")) ?? "") ?? 0
+                columnsInThisRow += max(colspan, 1)
+            }
+            columns = max(columns, columnsInThisRow)
+        }
+
+        return (rows, columns)
+    }
+
+    private func isDataTable(_ element: Element) -> Bool {
+        dataTableNodeIDs.contains(ObjectIdentifier(element))
     }
 
     private func shouldPreserveFigureImageWrapper(_ element: Element) -> Bool {
@@ -975,8 +1424,24 @@ final class ArticleCleaner {
     }
 
     private func collapseSingleDivWrappers(_ root: Element) throws {
+        let marker = "data-readability-root-marker"
+        let token = UUID().uuidString
+        let hadMarker = root.hasAttr(marker)
+        let previousMarker = hadMarker ? ((try? root.attr(marker)) ?? "") : nil
+        try root.attr(marker, token)
+        defer {
+            if let previousMarker {
+                try? root.attr(marker, previousMarker)
+            } else {
+                try? root.removeAttr(marker)
+            }
+        }
+
         let divs = try root.select("div")
         for div in divs.reversed() {
+            if ((try? div.attr(marker)) ?? "") == token {
+                continue
+            }
             guard div.parent() != nil else { continue }
             if div.hasAttr("data-testid") {
                 continue

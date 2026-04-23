@@ -47,6 +47,12 @@ public struct Readability {
         // Match Mozilla: upgrade lazy/placeholder images from <noscript> first.
         try unwrapNoscriptImages()
 
+        // Intentional Mozilla deviation: some script-heavy pages ship the full
+        // readable article only inside a semantic <noscript> fallback.
+        // Promote those narrowly-scoped fallbacks before prepDocument()
+        // removes remaining <noscript> nodes.
+        try promoteReadableNoscriptFallbacks()
+
         // Extract metadata BEFORE prepDocument() to preserve JSON-LD scripts
         let metadata = try extractMetadata()
 
@@ -61,12 +67,66 @@ public struct Readability {
             title = try extractTitle()
         }
 
-        // Extract article content using new ContentExtractor
-        let extractor = ContentExtractor(doc: doc, options: options, articleTitle: title, sourceURL: sourceURL, inspectionContext: inspectionContext)
-        let initialExtraction = try extractor.extract()
+        func measurePreparedTextLength(_ articleContent: Element, flags: UInt32) throws -> Int {
+            guard let preparedCopy = articleContent.copy() as? Element else {
+                return try articleContent.text().count
+            }
 
-        func cleanArticleContent(_ articleContent: Element, snapshotPrefix: String? = nil) throws -> String {
-            let cleaner = ArticleCleaner(options: options) { stage, element in
+            let cleaner = ArticleCleaner(
+                options: options,
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+            )
+            try cleaner.prepArticle(preparedCopy)
+            return try preparedCopy.text().count
+        }
+
+        // Extract article content using new ContentExtractor
+        let extractor = ContentExtractor(
+            doc: doc,
+            options: options,
+            articleTitle: title,
+            sourceURL: sourceURL,
+            acceptanceTextLengthEvaluator: measurePreparedTextLength(_:flags:),
+            inspectionContext: inspectionContext
+        )
+        let initialExtraction: (content: Element, byline: String?, neededToCreate: Bool, dir: String?, lang: String?, flags: UInt32)
+        do {
+            initialExtraction = try extractor.extract()
+        } catch let ReadabilityError.contentTooShort(actualLength, threshold) {
+            guard let recoveredContent = try SiteRuleRegistry.shortContentFallbackArticle(
+                in: doc,
+                sourceURL: sourceURL,
+                inspectionContext: inspectionContext
+            ) else {
+                throw ReadabilityError.contentTooShort(
+                    actualLength: actualLength,
+                    threshold: threshold
+                )
+            }
+
+            let documentLanguage = (try? doc.select("html").first()?.attr("lang"))
+                ?? nil
+            initialExtraction = (
+                content: recoveredContent,
+                byline: nil,
+                neededToCreate: false,
+                dir: nil,
+                lang: documentLanguage?.trimmingCharacters(in: .whitespacesAndNewlines),
+                flags: Configuration.flagStripUnlikelies |
+                    Configuration.flagWeightClasses |
+                    Configuration.flagCleanConditionally
+            )
+        }
+
+        func cleanArticleContent(
+            _ articleContent: Element,
+            flags: UInt32,
+            snapshotPrefix: String? = nil
+        ) throws -> String {
+            let cleaner = ArticleCleaner(
+                options: options,
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+            ) { stage, element in
                 let stageName: String
                 if let snapshotPrefix {
                     stageName = "\(snapshotPrefix).\(stage)"
@@ -97,7 +157,8 @@ public struct Readability {
         var extractedByline = initialExtraction.byline
         var articleDir = initialExtraction.dir
         var articleLang = initialExtraction.lang
-        var textContent = try cleanArticleContent(articleContent)
+        var extractionFlags = initialExtraction.flags
+        var textContent = try cleanArticleContent(articleContent, flags: extractionFlags)
 
         if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             for (index, attempt) in extractor.getAttemptsSortedByTextLength().enumerated() {
@@ -107,6 +168,7 @@ public struct Readability {
 
                 let candidateTextContent = try cleanArticleContent(
                     attempt.articleContent,
+                    flags: attempt.flags,
                     snapshotPrefix: "retry\(index + 1)"
                 )
                 if candidateTextContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -117,6 +179,7 @@ public struct Readability {
                 extractedByline = attempt.byline
                 articleDir = attempt.dir
                 articleLang = attempt.lang
+                extractionFlags = attempt.flags
                 textContent = candidateTextContent
                 break
             }
@@ -554,6 +617,116 @@ public struct Readability {
         }
     }
 
+    /// Promote semantic full-article `<noscript>` fallbacks into the live DOM.
+    ///
+    /// Mozilla removes all remaining `<noscript>` nodes after its image-only
+    /// upgrade path. Some modern app-shell pages, however, keep the entire
+    /// server-rendered article inside `<noscript>` as an accessibility or
+    /// no-JS fallback. We intentionally recover only those high-confidence
+    /// article fallbacks instead of broadly preserving all `<noscript>` nodes.
+    private func promoteReadableNoscriptFallbacks() throws {
+        let noscripts = try doc.select("noscript")
+        for noscript in noscripts {
+            guard let promoted = try promotedReadableNoscriptElement(from: noscript) else {
+                continue
+            }
+            try noscript.replaceWith(promoted)
+        }
+    }
+
+    private func promotedReadableNoscriptElement(from noscript: Element) throws -> Element? {
+        guard try extractSingleImage(fromNoscript: noscript) == nil else {
+            return nil
+        }
+
+        let html = try noscript.html().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else {
+            return nil
+        }
+
+        let fragment = try SwiftSoup.parseBodyFragment(html)
+        guard let fragmentBody = fragment.body() else {
+            return nil
+        }
+
+        let warningText = try DOMHelpers.getInnerText(fragmentBody).lowercased()
+        guard !warningText.isEmpty,
+              !looksLikeNoscriptWarning(warningText) else {
+            return nil
+        }
+
+        guard let semanticRoot = try readableNoscriptSemanticRoot(in: fragmentBody) else {
+            return nil
+        }
+
+        let threshold = max(options.charThreshold, Configuration.defaultCharThreshold)
+        let textLength = try DOMHelpers.getInnerText(semanticRoot).count
+        let paragraphCount = try semanticRoot.select("p").count
+        let linkDensity = try getLinkDensity(semanticRoot)
+
+        guard textLength >= threshold,
+              paragraphCount >= 5,
+              linkDensity < 0.35 else {
+            return nil
+        }
+
+        let promotedRoot: Element
+        if fragmentBody.children().count == 1, let onlyChild = fragmentBody.children().first {
+            promotedRoot = onlyChild
+        } else {
+            promotedRoot = semanticRoot
+        }
+
+        return try DOMHelpers.cloneElement(promotedRoot, in: doc)
+    }
+
+    private func readableNoscriptSemanticRoot(in fragmentBody: Element) throws -> Element? {
+        if let article = try fragmentBody.select("article").first() {
+            return article
+        }
+        if let main = try fragmentBody.select("main").first() {
+            return main
+        }
+
+        var node: Element? = fragmentBody
+        while let current = node {
+            let itemProp = (try? current.attr("itemprop").lowercased()) ?? ""
+            if itemProp.contains("articlebody") {
+                return current
+            }
+            node = DOMTraversal.getNextNode(current)
+        }
+
+        return nil
+    }
+
+    private func looksLikeNoscriptWarning(_ text: String) -> Bool {
+        let warningPhrases = [
+            "enable javascript",
+            "javascript enabled",
+            "without javascript",
+            "full functionality",
+            "modern browser"
+        ]
+        return warningPhrases.contains { text.contains($0) }
+    }
+
+    private func getLinkDensity(_ element: Element) throws -> Double {
+        let textLength = try DOMHelpers.getInnerText(element).count
+        if textLength == 0 {
+            return 0
+        }
+
+        let links = try element.select("a")
+        var linkLength = 0.0
+        for link in links {
+            let href = (try? link.attr("href")) ?? ""
+            let coefficient = href.hasPrefix("#") ? 0.3 : 1.0
+            linkLength += Double(try DOMHelpers.getInnerText(link).count) * coefficient
+        }
+        return linkLength / Double(textLength)
+    }
+
     private func extractSingleImage(fromNoscript noscript: Element) throws -> Element? {
         let html = try noscript.html()
         let fragment = try SwiftSoup.parseBodyFragment(html)
@@ -968,11 +1141,29 @@ public struct Readability {
         try trimParagraphBoundaryWhitespace(cleaned)
         try restoreFigureWrapperMetadataAttributes(cleaned)
 
-        doc.outputSettings().prettyPrint(pretty: false)
-
-        var serialized = try cleaned.html()
+        var serialized = try serializeWithDocumentSettings(cleaned)
         serialized = wrapOrphanRootCellContentIfNeeded(serialized)
         return serialized
+    }
+
+    private func serializeWithDocumentSettings(_ element: Element) throws -> String {
+        doc.outputSettings().prettyPrint(pretty: false)
+
+        // SwiftSoup uses default pretty-print settings for detached nodes.
+        // Attach the serialization clone temporarily so pre/code whitespace is
+        // emitted with the document's output settings.
+        let host = try doc.createElement("div")
+        try host.appendChild(element)
+        if let body = doc.body() {
+            try body.appendChild(host)
+        } else {
+            try doc.appendChild(host)
+        }
+        defer {
+            try? host.remove()
+        }
+
+        return try element.html()
     }
 
     private func wrapOrphanRootCellContentIfNeeded(_ html: String) -> String {

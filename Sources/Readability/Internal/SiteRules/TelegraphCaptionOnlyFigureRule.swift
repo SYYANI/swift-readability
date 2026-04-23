@@ -70,6 +70,25 @@ enum TelegraphCaptionOnlyFigureRule: SerializationSiteRule {
             }
         }
 
+        // Telegraph body image wrappers can become empty after media/caption
+        // cleanup. Drop those shells before class stripping so they do not
+        // survive as `<div><p></p></div>` in the final serialized HTML.
+        for imageWrapper in try articleContent.select("div.articleBodyImage").reversed() {
+            let hasMedia = (try? imageWrapper.select("img, picture, video, iframe, object, embed, svg").isEmpty()) == false
+            if hasMedia {
+                continue
+            }
+
+            let text = ((try? DOMHelpers.getInnerText(imageWrapper)) ?? "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                continue
+            }
+
+            try imageWrapper.remove()
+        }
+
         guard removedTelegraphCaptionFigure else { return }
 
         for div in try articleContent.select("div").reversed() {

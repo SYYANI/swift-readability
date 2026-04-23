@@ -371,6 +371,94 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
+    // MARK: matklad · 256 Lines or Less: Test Case Minimization (matklad.github.io)
+
+    @Test("matklad - Title matches expected")
+    func testMatkladTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("matklad - Byline matches expected")
+    func testMatkladByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("matklad - Excerpt matches expected")
+    func testMatkladExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("matklad - Content matches expected HTML")
+    func testMatkladContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "matklad", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'matklad'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+        #expect(result.content.contains("<span>    <span>return</span> .{ .entropy = entropy };</span>"))
+        #expect(result.content.contains("<span>        assert(<span>@typeInfo</span>(Int).int.signedness <span>==</span> .unsigned);</span>"))
+    }
+
+    // MARK: maurycyz · 5x5 Pixel font for tiny screens (maurycyz.com)
+
+    @Test("maurycyz - Title matches expected")
+    func testMaurycyzTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "maurycyz", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'maurycyz'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("maurycyz - Byline matches expected")
+    func testMaurycyzByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "maurycyz", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'maurycyz'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("maurycyz - Excerpt matches expected")
+    func testMaurycyzExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "maurycyz", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'maurycyz'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("maurycyz - Content matches expected HTML")
+    func testMaurycyzContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "maurycyz", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'maurycyz'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
     // MARK: simonwillison-1 · Release: datasette-llm 0.1a2 (simonwillison.net)
 
     @Test("simonwillison-1 - Title matches expected")
@@ -692,6 +780,69 @@ struct ExPagesCompatibilityTests {
         #expect(isEqual, "DOM mismatch:\n\(diff)")
     }
 
+    // MARK: soulhacker · 为什么你要学习类型系统 (soulhacker.me)
+
+    @Test("soulhacker - Title matches expected")
+    func testSoulhackerTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("soulhacker - Byline matches expected")
+    func testSoulhackerByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("soulhacker - Excerpt matches expected")
+    func testSoulhackerExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("soulhacker - Site name matches expected")
+    func testSoulhackerSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("soulhacker - Published time matches expected")
+    func testSoulhackerPublishedTime() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.publishedTime == testCase.expectedMetadata.publishedTime)
+    }
+
+    @Test("soulhacker - Content matches expected HTML")
+    func testSoulhackerContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "soulhacker", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'soulhacker'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
     // MARK: dfarq · Atari ST introduced April 8, 1985 (dfarq.homeip.net)
 
     @Test("dfarq - Title matches expected")
@@ -748,6 +899,208 @@ struct ExPagesCompatibilityTests {
     func testDfarqContent() async throws {
         guard let testCase = TestLoader.loadTestCase(named: "dfarq", in: "ex-pages") else {
             Issue.record("Failed to load test case 'dfarq'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
+    // MARK: macrumors · Here's How Researchers Stole $10,000 From MKBHD's Locked iPhone (macrumors.com)
+
+    @Test("macrumors - Title matches expected")
+    func testMacRumorsTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("macrumors - Byline matches expected")
+    func testMacRumorsByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("macrumors - Excerpt matches expected")
+    func testMacRumorsExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("macrumors - Site name matches expected")
+    func testMacRumorsSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("macrumors - Published time matches expected")
+    func testMacRumorsPublishedTime() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.publishedTime == testCase.expectedMetadata.publishedTime)
+    }
+
+    @Test("macrumors - Content matches expected HTML")
+    func testMacRumorsContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macrumors", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macrumors'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
+    // MARK: macscene · Interview: John Calhoun on the Origins of Glider (Part 1) (macscene.net)
+
+    @Test("macscene - Title matches expected")
+    func testMacsceneTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("macscene - Byline matches expected")
+    func testMacsceneByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("macscene - Excerpt matches expected")
+    func testMacsceneExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("macscene - Content matches expected HTML")
+    func testMacsceneContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "macscene", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'macscene'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
+    // MARK: idiallo · We Are All Playing Politics at Work (idiallo.com)
+
+    @Test("idiallo - Title matches expected")
+    func testIdialloTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("idiallo - Byline matches expected")
+    func testIdialloByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("idiallo - Excerpt matches expected")
+    func testIdialloExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("idiallo - Site name matches expected")
+    func testIdialloSiteName() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.siteName == testCase.expectedMetadata.siteName)
+    }
+
+    @Test("idiallo - Content matches expected HTML")
+    func testIdialloContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "idiallo", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'idiallo'")
+            return
+        }
+        let result = try parse(testCase)
+        let (isEqual, diff) = DOMComparator.compare(result.content, testCase.expectedHTML)
+        #expect(isEqual, "DOM mismatch:\n\(diff)")
+    }
+
+    // MARK: buttondown · A sufficiently comprehensive spec is not (necessarily) code (buttondown.com)
+
+    @Test("buttondown - Title matches expected")
+    func testButtondownTitle() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.title == testCase.expectedMetadata.title)
+    }
+
+    @Test("buttondown - Byline matches expected")
+    func testButtondownByline() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.byline == testCase.expectedMetadata.byline)
+    }
+
+    @Test("buttondown - Excerpt matches expected")
+    func testButtondownExcerpt() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
+            return
+        }
+        let result = try parse(testCase)
+        #expect(result.excerpt == testCase.expectedMetadata.excerpt)
+    }
+
+    @Test("buttondown - Content matches expected HTML")
+    func testButtondownContent() async throws {
+        guard let testCase = TestLoader.loadTestCase(named: "buttondown", in: "ex-pages") else {
+            Issue.record("Failed to load test case 'buttondown'")
             return
         }
         let result = try parse(testCase)

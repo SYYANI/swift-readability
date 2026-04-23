@@ -6,6 +6,11 @@ import ArgumentParser
 import Foundation
 import Readability
 import SwiftSoup
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private struct StagedCaseMetadata: Decodable {
     let url: String
@@ -28,13 +33,134 @@ private func metadataJSONObject(from result: ReadabilityResult, includeLength: B
     return json
 }
 
+private func failureJSONObject(for error: Error) -> [String: Any] {
+    [
+        "readable": false,
+        "error": String(describing: error)
+    ]
+}
+
+private struct RedirectedProcessResult {
+    let terminationStatus: Int32
+    let timedOut: Bool
+    let stdout: Data
+    let stderr: Data
+}
+
+private func runRedirectedProcess(
+    executableURL: URL,
+    arguments: [String],
+    stdoutURL: URL,
+    stderrURL: URL,
+    timeoutSeconds: TimeInterval
+) async throws -> RedirectedProcessResult {
+    let fm = FileManager.default
+    for fileURL in [stdoutURL, stderrURL] {
+        if fm.fileExists(atPath: fileURL.path) {
+            try fm.removeItem(at: fileURL)
+        }
+        guard fm.createFile(atPath: fileURL.path, contents: nil) else {
+            throw ValidationError("Could not create temporary file at \(fileURL.path)")
+        }
+    }
+
+    let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+    let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+    defer {
+        try? stdoutHandle.close()
+        try? stderrHandle.close()
+    }
+
+    let process = Process()
+    process.executableURL = executableURL
+    process.arguments = arguments
+    process.standardOutput = stdoutHandle
+    process.standardError = stderrHandle
+
+    try process.run()
+
+    let timeoutNanos = UInt64(timeoutSeconds * 1_000_000_000)
+    let pollNanos: UInt64 = 100_000_000
+    var elapsedNanos: UInt64 = 0
+    var timedOut = false
+
+    while process.isRunning {
+        if elapsedNanos >= timeoutNanos {
+            timedOut = true
+            process.terminate()
+            break
+        }
+        try await Task.sleep(nanoseconds: pollNanos)
+        elapsedNanos += pollNanos
+    }
+
+    if timedOut {
+        var graceNanos: UInt64 = 0
+        let graceLimitNanos: UInt64 = 2_000_000_000
+        while process.isRunning && graceNanos < graceLimitNanos {
+            try await Task.sleep(nanoseconds: pollNanos)
+            graceNanos += pollNanos
+        }
+        if process.isRunning {
+            forceKill(process)
+        }
+    }
+
+    process.waitUntilExit()
+
+    return RedirectedProcessResult(
+        terminationStatus: process.terminationStatus,
+        timedOut: timedOut,
+        stdout: try Data(contentsOf: stdoutURL),
+        stderr: try Data(contentsOf: stderrURL)
+    )
+}
+
+private func forceKill(_ process: Process) {
+#if canImport(Darwin)
+    Darwin.kill(process.processIdentifier, SIGKILL)
+#elseif canImport(Glibc)
+    Glibc.kill(process.processIdentifier, SIGKILL)
+#else
+    process.terminate()
+#endif
+}
+
+private func printParseFollowUp(
+    caseName: String,
+    swiftSucceeded: Bool,
+    mozillaSucceeded: Bool,
+    mozillaFailureNote: String? = nil
+) {
+    if swiftSucceeded {
+        if !mozillaSucceeded {
+            printErr("Note: \(mozillaFailureNote ?? "Mozilla Readability.js returned null for this page. Swift output was still generated.")")
+        }
+        print("Prepare expected.* from the Swift outputs, edit to the intended target state, then commit:")
+        print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
+        print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+        print("  (edit expected.html / expected-metadata.json as needed)")
+        print("  swift run ReadabilityCLI commit \(caseName)")
+        return
+    }
+
+    if mozillaSucceeded {
+        printErr("Note: Swift Readability failed, but Mozilla produced output for comparison.")
+        printErr("Fix or instrument the Swift extraction before preparing expected fixtures for this case.")
+        return
+    }
+
+    printErr("Note: Neither Swift nor Mozilla produced readable output for this staged source.")
+    printErr("This case likely needs source acquisition or runtime-rendering investigation before fixture promotion.")
+}
+
 // MARK: - Entry point
 
 @main
 struct ReadabilityCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Issue Capture & Ground Truth Calibration Pipeline.",
-        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self, Inspect.self]
+        subcommands: [Fetch.self, Parse.self, Review.self, Commit.self, Clean.self, Inspect.self, ProbeDOM.self]
     )
 }
 
@@ -68,6 +194,126 @@ private func loadStagedCaseURL(for caseName: String) -> URL? {
     let trimmedURL = metadata.url.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedURL.isEmpty else { return nil }
     return URL(string: trimmedURL)
+}
+
+// MARK: - probe-dom
+
+struct ProbeDOM: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "probe-dom",
+        abstract: "Probe SwiftSoup parsing and serialization behavior for small HTML fragments."
+    )
+
+    @Option(name: .long, help: "HTML fragment to parse.")
+    var html: String?
+
+    @Option(name: .long, help: "Path to an HTML file to parse.")
+    var file: String?
+
+    @Option(name: .long, help: "CSS selector to serialize. Defaults to body.")
+    var selector: String = "body"
+
+    @Flag(name: .long, help: "Parse as a full document instead of a body fragment.")
+    var document = false
+
+    @Flag(name: .long, help: "Enable SwiftSoup pretty printing before serialization.")
+    var pretty = false
+
+    @Flag(name: .long, help: "Remove class attributes before serialization.")
+    var stripClasses = false
+
+    @Flag(name: .long, help: "Serialize SwiftSoup's native copy() of the selected element.")
+    var copy = false
+
+    @Flag(name: .long, help: "Serialize a manual whitespace-preserving clone of the selected element.")
+    var manualClone = false
+
+    @Flag(name: .long, help: "Serialize the selected element itself instead of its inner HTML.")
+    var outer = false
+
+    @Flag(name: .long, help: "Render spaces, tabs, and newlines visibly in the output.")
+    var visibleWhitespace = false
+
+    mutating func run() throws {
+        guard (html == nil) != (file == nil) else {
+            throw ValidationError("Provide exactly one of --html or --file.")
+        }
+
+        let input: String
+        if let html {
+            input = html
+        } else if let file {
+            input = try String(contentsOfFile: file, encoding: .utf8)
+        } else {
+            throw ValidationError("Missing HTML input.")
+        }
+
+        let doc = document
+            ? try SwiftSoup.parse(input)
+            : try SwiftSoup.parseBodyFragment(input)
+        doc.outputSettings().prettyPrint(pretty: pretty)
+
+        guard let selected = try doc.select(selector).first() else {
+            throw ValidationError("Selector '\(selector)' did not match any element.")
+        }
+
+        guard !(copy && manualClone) else {
+            throw ValidationError("Use at most one of --copy or --manual-clone.")
+        }
+
+        let outputElement: Element
+        if copy {
+            guard let copied = selected.copy() as? Element else {
+                throw ValidationError("SwiftSoup copy() did not return an Element.")
+            }
+            outputElement = copied
+        } else if manualClone {
+            outputElement = try ProbeDOM.manualClone(selected, in: doc)
+        } else {
+            outputElement = selected
+        }
+
+        if stripClasses {
+            try ProbeDOM.stripClassAttributes(from: outputElement)
+        }
+
+        var output = outer ? try outputElement.outerHtml() : try outputElement.html()
+        if visibleWhitespace {
+            output = output
+                .replacingOccurrences(of: "\t", with: "⇥")
+                .replacingOccurrences(of: " ", with: "·")
+                .replacingOccurrences(of: "\n", with: "⏎\n")
+        }
+        print(output)
+    }
+
+    private static func stripClassAttributes(from element: Element) throws {
+        try element.removeAttr("class")
+        for child in element.children() {
+            try stripClassAttributes(from: child)
+        }
+    }
+
+    private static func manualClone(_ element: Element, in doc: Document) throws -> Element {
+        let clone = try doc.createElement(element.tagName())
+        if let attributes = element.getAttributes() {
+            for attr in attributes {
+                try clone.attr(attr.getKey(), attr.getValue())
+            }
+        }
+
+        for node in element.getChildNodes() {
+            if let childElement = node as? Element {
+                try clone.appendChild(manualClone(childElement, in: doc))
+            } else if let textNode = node as? TextNode {
+                try clone.appendChild(TextNode(textNode.getWholeText(), doc.location()))
+            } else if let copied = node.copy() as? Node {
+                try clone.appendChild(copied)
+            }
+        }
+
+        return clone
+    }
 }
 
 /// Detect Node.js on $PATH. The bridge script requires Node.js (CJS + jsdom).
@@ -190,7 +436,14 @@ struct Parse: AsyncParsableCommand {
     @Argument(help: "The case name to parse.")
     var caseName: String
 
+    @Option(name: .long, help: "Timeout in seconds for the Mozilla Readability.js bridge. Defaults to 30.")
+    var mozillaTimeout: Double = 30
+
     mutating func run() async throws {
+        guard mozillaTimeout >= 0.1 else {
+            throw ValidationError("--mozilla-timeout must be at least 0.1 seconds.")
+        }
+
         let fm = FileManager.default
         let dest = stagingCaseDir(for: caseName)
         let sourceFile = dest.appendingPathComponent("source.html")
@@ -200,31 +453,52 @@ struct Parse: AsyncParsableCommand {
 
         let html = try String(contentsOf: sourceFile, encoding: .utf8)
         let caseURL = loadStagedCaseURL(for: caseName)
+        var swiftParseSucceeded = false
 
         // Swift Readability
         printErr("Swift Readability ...")
-        let result = try Readability(html: html, baseURL: caseURL).parse()
-        try result.content.write(
-            to: dest.appendingPathComponent("swift-out.html"),
-            atomically: true, encoding: .utf8)
+        do {
+            let result = try Readability(html: html, baseURL: caseURL).parse()
+            try result.content.write(
+                to: dest.appendingPathComponent("swift-out.html"),
+                atomically: true, encoding: .utf8)
 
-        let swiftMeta = metadataJSONObject(from: result, includeLength: true)
-        let swiftMetaData = try JSONSerialization.data(
-            withJSONObject: swiftMeta,
-            options: [.prettyPrinted, .sortedKeys]
-        )
-        try swiftMetaData.write(to: dest.appendingPathComponent("swift-result.json"))
+            let swiftMeta = metadataJSONObject(from: result, includeLength: true)
+            let swiftMetaData = try JSONSerialization.data(
+                withJSONObject: swiftMeta,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try swiftMetaData.write(to: dest.appendingPathComponent("swift-result.json"))
 
-        let swiftExpectedMeta = metadataJSONObject(from: result, includeLength: false)
-        let swiftExpectedMetaData = try JSONSerialization.data(
-            withJSONObject: swiftExpectedMeta,
-            options: [.prettyPrinted, .sortedKeys]
-        )
-        try swiftExpectedMetaData.write(to: dest.appendingPathComponent("swift-expected-metadata.json"))
+            let swiftExpectedMeta = metadataJSONObject(from: result, includeLength: false)
+            let swiftExpectedMetaData = try JSONSerialization.data(
+                withJSONObject: swiftExpectedMeta,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try swiftExpectedMetaData.write(to: dest.appendingPathComponent("swift-expected-metadata.json"))
 
-        print("  swift-out.html")
-        print("  swift-result.json")
-        print("  swift-expected-metadata.json")
+            print("  swift-out.html")
+            print("  swift-result.json")
+            print("  swift-expected-metadata.json")
+            swiftParseSucceeded = true
+        } catch {
+            for fileName in ["swift-out.html", "swift-expected-metadata.json"] {
+                let fileURL = dest.appendingPathComponent(fileName)
+                if fm.fileExists(atPath: fileURL.path) {
+                    try fm.removeItem(at: fileURL)
+                }
+            }
+
+            let swiftFailureData = try JSONSerialization.data(
+                withJSONObject: failureJSONObject(for: error),
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try swiftFailureData.write(to: dest.appendingPathComponent("swift-result.json"))
+
+            print("  swift-result.json  (Swift parse failed)")
+            printErr("Note: Swift Readability failed for this page: \(error)")
+            printErr("Continuing to Mozilla Readability.js for comparison.")
+        }
 
         // Mozilla Readability.js
         guard let runtime = detectJSRuntime() else {
@@ -232,11 +506,7 @@ struct Parse: AsyncParsableCommand {
             printErr("Note: node not found on $PATH. Mozilla comparison skipped.")
             printErr("Install Node.js and re-run 'parse \(caseName)'.")
             printErr("(The bridge script uses CJS + jsdom and requires Node.js.)")
-            print("Prepare expected.* from the Swift outputs, edit to the intended target state, then commit:")
-            print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
-            print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
-            print("  (edit expected.html / expected-metadata.json as needed)")
-            print("  swift run ReadabilityCLI commit \(caseName)")
+            printParseFollowUp(caseName: caseName, swiftSucceeded: swiftParseSucceeded, mozillaSucceeded: false)
             return
         }
 
@@ -253,61 +523,113 @@ struct Parse: AsyncParsableCommand {
             ? ["run", "--allow-read", bridgePath.path] + bridgeInput
             : [bridgePath.path] + bridgeInput
 
-        let jsProcess = Process()
-        jsProcess.executableURL = URL(fileURLWithPath: runtime.path)
-        jsProcess.arguments = args
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        jsProcess.standardOutput = outPipe
-        jsProcess.standardError = errPipe
-        try jsProcess.run()
-        jsProcess.waitUntilExit()
+        let stdoutURL = dest.appendingPathComponent("mozilla-stdout.tmp.json")
+        let stderrURL = dest.appendingPathComponent("mozilla-stderr.tmp.txt")
+        defer {
+            try? fm.removeItem(at: stdoutURL)
+            try? fm.removeItem(at: stderrURL)
+        }
 
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        let bridgeMessage = String(data: errData, encoding: .utf8)?
+        let bridgeResult = try await runRedirectedProcess(
+            executableURL: URL(fileURLWithPath: runtime.path),
+            arguments: args,
+            stdoutURL: stdoutURL,
+            stderrURL: stderrURL,
+            timeoutSeconds: mozillaTimeout
+        )
+
+        let bridgeMessage = String(data: bridgeResult.stderr, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !bridgeMessage.isEmpty {
             printErr("JS bridge: \(bridgeMessage)")
         }
 
-        if jsProcess.terminationStatus == 2 {
+        func removeMozillaOutputs() throws {
             for fileName in ["mozilla-out.html", "draft-expected-metadata.json"] {
                 let fileURL = dest.appendingPathComponent(fileName)
                 if fm.fileExists(atPath: fileURL.path) {
                     try fm.removeItem(at: fileURL)
                 }
             }
+        }
 
-            let nullResult: [String: Any] = [
+        func writeMozillaFailure(
+            error: String,
+            suffix: String,
+            note: String? = nil,
+            includeStatus: Bool = true
+        ) throws {
+            try removeMozillaOutputs()
+            var failure: [String: Any] = [
                 "readable": false,
-                "error": bridgeMessage.isEmpty
-                    ? "Readability.parse() returned null — page may not be readable"
-                    : bridgeMessage,
+                "error": error,
+                "timedOut": bridgeResult.timedOut,
+                "stdoutBytes": bridgeResult.stdout.count,
+                "stderrBytes": bridgeResult.stderr.count
             ]
-            let nullResultData = try JSONSerialization.data(
-                withJSONObject: nullResult,
+            if includeStatus {
+                failure["terminationStatus"] = Int(bridgeResult.terminationStatus)
+            }
+            if !bridgeMessage.isEmpty {
+                failure["stderr"] = bridgeMessage
+            }
+            let failureData = try JSONSerialization.data(
+                withJSONObject: failure,
                 options: [.prettyPrinted, .sortedKeys]
             )
-            try nullResultData.write(to: dest.appendingPathComponent("mozilla-result.json"))
+            try failureData.write(to: dest.appendingPathComponent("mozilla-result.json"))
 
-            print("  mozilla-result.json  (Mozilla returned null)")
+            print("  mozilla-result.json  (\(suffix))")
             print("")
-            printErr("Note: Mozilla Readability.js returned null for this page. Swift output was still generated.")
-            print("Prepare expected.* from the Swift outputs, edit to the intended target state, then commit:")
-            print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
-            print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
-            print("  (edit expected.html / expected-metadata.json as needed)")
-            print("  swift run ReadabilityCLI commit \(caseName)")
+            printParseFollowUp(
+                caseName: caseName,
+                swiftSucceeded: swiftParseSucceeded,
+                mozillaSucceeded: false,
+                mozillaFailureNote: note
+            )
+        }
+
+        if bridgeResult.timedOut {
+            let seconds = String(format: "%.1f", mozillaTimeout)
+            printErr("Note: Mozilla bridge timed out after \(seconds)s.")
+            try writeMozillaFailure(
+                error: "Mozilla bridge timed out after \(seconds)s.",
+                suffix: "Mozilla timed out",
+                note: "Mozilla bridge timed out. Swift output was still generated."
+            )
             return
         }
 
-        guard jsProcess.terminationStatus == 0 else {
-            throw ValidationError("Mozilla bridge exited with status \(jsProcess.terminationStatus).")
+        if bridgeResult.terminationStatus == 2 {
+            try writeMozillaFailure(
+                error: bridgeMessage.isEmpty
+                    ? "Readability.parse() returned null — page may not be readable"
+                    : bridgeMessage,
+                suffix: "Mozilla returned null"
+            )
+            return
         }
 
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard bridgeResult.terminationStatus == 0 else {
+            try writeMozillaFailure(
+                error: bridgeMessage.isEmpty
+                    ? "Mozilla bridge exited with status \(bridgeResult.terminationStatus)."
+                    : bridgeMessage,
+                suffix: "Mozilla failed",
+                note: "Mozilla bridge failed. Swift output was still generated."
+            )
+            return
+        }
+
+        let outData = bridgeResult.stdout
         guard var json = try JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-            throw ValidationError("Could not parse JS bridge output as JSON.")
+            try writeMozillaFailure(
+                error: "Could not parse JS bridge output as JSON.",
+                suffix: "Mozilla output was invalid JSON",
+                note: "Mozilla bridge emitted invalid JSON. Swift output was still generated.",
+                includeStatus: false
+            )
+            return
         }
 
         // Write mozilla-out.html (content only)
@@ -329,11 +651,16 @@ struct Parse: AsyncParsableCommand {
         print("  mozilla-result.json")
         print("  draft-expected-metadata.json")
         print("")
-        print("Review Swift and Mozilla outputs, then prepare expected.* from the Swift outputs:")
-        print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
-        print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
-        print("  (edit expected.html / expected-metadata.json as needed to reach the intended target state)")
-        print("  swift run ReadabilityCLI commit \(caseName)")
+        if swiftParseSucceeded {
+            print("Review Swift and Mozilla outputs, then prepare expected.* from the Swift outputs:")
+            print("  cp .staging/\(caseName)/swift-out.html .staging/\(caseName)/expected.html")
+            print("  cp .staging/\(caseName)/swift-expected-metadata.json .staging/\(caseName)/expected-metadata.json")
+            print("  (edit expected.html / expected-metadata.json as needed to reach the intended target state)")
+            print("  swift run ReadabilityCLI commit \(caseName)")
+        } else {
+            printErr("Note: Mozilla produced output, but Swift failed for this staged source.")
+            printErr("Use the generated comparison files to debug the Swift extractor before promoting this case.")
+        }
     }
 }
 
