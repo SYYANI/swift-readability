@@ -6,16 +6,19 @@ import SwiftSoup
 final class ArticleCleaner {
     private let options: ReadabilityOptions
     private let allowConditionalCleaning: Bool
+    private let allowWeightClasses: Bool
     private let debugSnapshot: ((String, Element) -> Void)?
     private var dataTableNodeIDs: Set<ObjectIdentifier> = []
 
     init(
         options: ReadabilityOptions,
         allowConditionalCleaning: Bool = true,
+        allowWeightClasses: Bool = true,
         debugSnapshot: ((String, Element) -> Void)? = nil
     ) {
         self.options = options
         self.allowConditionalCleaning = allowConditionalCleaning
+        self.allowWeightClasses = allowWeightClasses
         self.debugSnapshot = debugSnapshot
     }
 
@@ -107,9 +110,9 @@ final class ArticleCleaner {
         try element.attr(marker, token)
         defer {
             if let previousMarker {
-                try? element.attr(marker, previousMarker)
+                _ = try? element.attr(marker, previousMarker)
             } else {
-                try? element.removeAttr(marker)
+                _ = try? element.removeAttr(marker)
             }
         }
 
@@ -1043,9 +1046,9 @@ final class ArticleCleaner {
         try root.attr(marker, token)
         defer {
             if let previousMarker {
-                try? root.attr(marker, previousMarker)
+                _ = try? root.attr(marker, previousMarker)
             } else {
-                try? root.removeAttr(marker)
+                _ = try? root.removeAttr(marker)
             }
         }
 
@@ -1254,9 +1257,9 @@ final class ArticleCleaner {
         try root.attr(marker, token)
         defer {
             if let previousMarker {
-                try? root.attr(marker, previousMarker)
+                _ = try? root.attr(marker, previousMarker)
             } else {
-                try? root.removeAttr(marker)
+                _ = try? root.removeAttr(marker)
             }
         }
 
@@ -1431,9 +1434,9 @@ final class ArticleCleaner {
         try root.attr(marker, token)
         defer {
             if let previousMarker {
-                try? root.attr(marker, previousMarker)
+                _ = try? root.attr(marker, previousMarker)
             } else {
-                try? root.removeAttr(marker)
+                _ = try? root.removeAttr(marker)
             }
         }
 
@@ -1487,6 +1490,7 @@ final class ArticleCleaner {
 
     /// Get class/id weight for an element
     private func getClassWeight(_ element: Element) -> Double {
+        guard allowWeightClasses else { return 0 }
         var weight: Double = 0
         let classAndId = DOMHelpers.getClassAndId(element)
 

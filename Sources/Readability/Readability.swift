@@ -74,7 +74,8 @@ public struct Readability {
 
             let cleaner = ArticleCleaner(
                 options: options,
-                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0,
+                allowWeightClasses: flags & Configuration.flagWeightClasses != 0
             )
             try cleaner.prepArticle(preparedCopy)
             return try preparedCopy.text().count
@@ -125,7 +126,8 @@ public struct Readability {
         ) throws -> String {
             let cleaner = ArticleCleaner(
                 options: options,
-                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0
+                allowConditionalCleaning: flags & Configuration.flagCleanConditionally != 0,
+                allowWeightClasses: flags & Configuration.flagWeightClasses != 0
             ) { stage, element in
                 let stageName: String
                 if let snapshotPrefix {
@@ -160,7 +162,12 @@ public struct Readability {
         var extractionFlags = initialExtraction.flags
         var textContent = try cleanArticleContent(articleContent, flags: extractionFlags)
 
-        if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let shouldKeepTextlessContent = try SiteRuleRegistry.shouldKeepTextlessArticleContent(
+            articleContent,
+            sourceURL: sourceURL,
+            document: doc
+        )
+        if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !shouldKeepTextlessContent {
             for (index, attempt) in extractor.getAttemptsSortedByTextLength().enumerated() {
                 if attempt.articleContent === articleContent {
                     continue
