@@ -22,6 +22,19 @@ enum SiteRuleRegistry {
         }
     }
 
+    static func applyPreExtractionDocumentRules(
+        to document: Document,
+        sourceURL: URL?
+    ) throws {
+        let rules: [PreExtractionDocumentRule.Type] = [
+            StandardDiscussionModuleRule.self,
+            XeiasoArticleRule.self
+        ]
+        for rule in rules {
+            try rule.apply(to: document, sourceURL: sourceURL)
+        }
+    }
+
     static func applySerializationRules(to articleContent: Element) throws {
         let rules: [SerializationSiteRule.Type] = [
             AntirezProsePreRule.self,
@@ -39,7 +52,8 @@ enum SiteRuleRegistry {
             BreitbartHeaderMediaRule.self,
             QuantaTopReactIDRule.self,
             HukumusumeLegacyFileURLRule.self,
-            XkcdComicImageSourceRule.self
+            XkcdComicImageSourceRule.self,
+            XeiasoArticleRule.self
         ]
         for rule in rules {
             try rule.apply(to: articleContent)
@@ -128,7 +142,8 @@ enum SiteRuleRegistry {
         inspectionContext: InspectionContext? = nil
     ) throws -> Element? {
         let rules: [ShortContentFallbackSiteRule.Type] = [
-            OneA23GalleryShortArticleRule.self
+            OneA23GalleryShortArticleRule.self,
+            XeiasoArticleRule.self
         ]
         for rule in rules {
             if let fallback = try rule.fallbackArticleContent(in: document, sourceURL: sourceURL) {
@@ -152,6 +167,7 @@ enum SiteRuleRegistry {
             BreitbartArticleCandidatePromotionRule.self,
             FirefoxNightlyContainerCandidatePromotionRule.self,
             CityLabArticleContainerCandidateRule.self,
+            XeiasoArticleRule.self,
             SimonWillisonBeatCandidatePromotionRule.self
         ]
         for rule in rules {
@@ -165,7 +181,8 @@ enum SiteRuleRegistry {
     static func shouldKeepCandidate(_ current: Element) -> Bool {
         let rules: [CandidateProtectionSiteRule.Type] = [
             CityLabArticleContainerCandidateRule.self,
-            MacRumorsMainContentCandidateRule.self
+            MacRumorsMainContentCandidateRule.self,
+            XeiasoArticleRule.self
         ]
         for rule in rules where rule.shouldKeepCandidate(current) {
             return true
@@ -246,7 +263,8 @@ enum SiteRuleRegistry {
             ]
         case .preConversion:
             return [
-                NYTimesRelatedLinkCardsRule.self
+                NYTimesRelatedLinkCardsRule.self,
+                SubstackInlineButtonCTARule.self
             ]
         case .shareCleanup:
             return [
@@ -270,6 +288,7 @@ enum SiteRuleRegistry {
                 LiberationArticleBodyWrapperRule.self,
                 DFarqShareAuthorTailRule.self,
                 SubstackTwitterEmbedRule.self,
+                XeiasoArticleRule.self,
                 WordPressPrevNextNavigationRule.self,
                 JohnDCookRelatedPostsRule.self,
                 MercurialExampleSectionRule.self,
@@ -289,7 +308,8 @@ enum SiteRuleRegistry {
     ) throws -> SiblingInclusionDecision? {
         let rules: [SiblingInclusionSiteRule.Type] = [
             XkcdFooterSiblingRule.self,
-            WordPressFeaturedImageRule.self
+            WordPressFeaturedImageRule.self,
+            SeanGoedeckePostFooterRule.self
         ]
         for rule in rules {
             if let decision = try rule.shouldIncludeSibling(sibling, topCandidate: topCandidate) {
