@@ -338,9 +338,46 @@ final class ArticleCleaner {
     private func promoteFloatedInlineImagesToFigures(_ root: Element) throws {
         while let image = try nextFloatedInlineImage(in: root) {
             guard let host = nearestFloatedImageHost(for: image), host.parent() != nil else {
+                // Host is detached or nonexistent — cannot promote.
+                // Strip float style so this image won't be re-discovered
+                // on the next scan, guaranteeing loop convergence.
+                try stripFloatFromStyle(image)
                 continue
             }
             try promoteFloatedInlineImage(image, from: host)
+        }
+    }
+
+    /// Removes `float:left|right` from the element's inline `style` attribute.
+    /// If the style attribute becomes empty after removal, it is removed entirely.
+    private func stripFloatFromStyle(_ element: Element) throws {
+        let style = (try? element.attr("style")) ?? ""
+        guard !style.isEmpty else { return }
+
+        let declarations = style
+            .split(separator: ";", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { declaration in
+                guard let colon = declaration.firstIndex(of: ":") else {
+                    return true
+                }
+                let property = declaration[..<colon]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                guard property == "float" else {
+                    return true
+                }
+                let value = declaration[declaration.index(after: colon)...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                return !value.hasPrefix("left") && !value.hasPrefix("right")
+            }
+
+        let cleanedStyle = declarations.joined(separator: "; ")
+        if cleanedStyle.isEmpty {
+            try element.removeAttr("style")
+        } else {
+            try element.attr("style", cleanedStyle)
         }
     }
 
@@ -1495,10 +1532,10 @@ final class ArticleCleaner {
         let classAndId = DOMHelpers.getClassAndId(element)
 
         if Configuration.negativePatterns.contains(where: { classAndId.contains($0) }) {
-            weight -= 25
+            weight -= Configuration.classWeightPositive
         }
         if Configuration.positivePatterns.contains(where: { classAndId.contains($0) }) {
-            weight += 25
+            weight += Configuration.classWeightPositive
         }
 
         return weight
@@ -1560,7 +1597,6 @@ final class ArticleCleaner {
         // Remove empty paragraphs
         try removeEmptyParagraphs(articleContent)
         try SiteRuleRegistry.applyArticleCleanerRules(phase: .postParagraph, to: articleContent, context: siteRuleContext)
-        try mergeFragmentedParagraphDivs(articleContent)
 
         // Remove ad placeholders that survived extraction.
         try removeAdvertisementPlaceholders(articleContent)
@@ -1633,44 +1669,6 @@ final class ArticleCleaner {
         }
     }
 
-    /// Merge div blocks whose direct paragraph children were split into many tiny fragments.
-    /// This commonly happens in print-info tails where inline spans are broken into
-    /// consecutive short paragraphs.
-    private func mergeFragmentedParagraphDivs(_ element: Element) throws {
-        let divs = try element.select("div")
-        for div in divs.reversed() {
-            guard div.parent() != nil else { continue }
-            if (try? div.select("h1, h2, h3, h4, h5, h6, img, picture, figure, video, iframe, table, ul, ol").isEmpty()) == false {
-                continue
-            }
-
-            let children = div.children().array()
-            guard !children.isEmpty else { continue }
-            guard children.allSatisfy({ $0.tagName().lowercased() == "p" }) else { continue }
-
-            let paragraphs = children
-            guard paragraphs.count >= 4 else { continue }
-
-            let prefix = Array(paragraphs.prefix(min(6, paragraphs.count)))
-            let shortPrefixCount = prefix.filter {
-                let text = ((try? DOMHelpers.getInnerText($0)) ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.count <= 24
-            }.count
-            guard shortPrefixCount >= 3 else { continue }
-
-            let doc = div.ownerDocument() ?? Document("")
-            let merged = try doc.createElement("p")
-            for paragraph in paragraphs {
-                while let first = paragraph.getChildNodes().first {
-                    try merged.appendChild(first)
-                }
-                try paragraph.remove()
-            }
-            try div.appendChild(merged)
-        }
-    }
-
     /// Replace H1 elements with H2 (H1 should be reserved for article title)
     private func replaceH1WithH2(_ element: Element) throws {
         let h1s = try element.select("h1")
@@ -1703,6 +1701,183 @@ final class ArticleCleaner {
                text.count <= 120,
                (try? node.select("img, video, picture, figure, table, blockquote").isEmpty()) == true {
                 try node.remove()
+            }
+        }
+    }
+
+    // MARK: - Boundary Residue Cleanup
+
+    /// Content-bearing element tags that always stop boundary trimming,
+    /// even if they appear empty (e.g. an empty `<figure>` or `<ul>` at
+    /// the edge of the article is preserved).
+    private static let meaningfulContentTags: Set<String> = [
+        "img", "picture", "video", "audio", "svg",
+        "figure", "table", "ul", "ol", "blockquote", "pre", "code", "iframe",
+        "object", "embed", "canvas", "math",
+        "article"
+    ]
+
+    /// Container tags that boundary trimming may recurse into.
+    /// These are structural wrappers that can harbour trailing/leading
+    /// residue *inside* themselves even when the wrapper itself is not
+    /// removable.
+    private static let boundaryContainerTags: Set<String> = [
+        "div", "section", "aside", "header", "footer",
+        "article", "main"
+    ]
+
+    /// Structural wrapper tags that may be removed entirely when all
+    /// their descendants are boundary residue. This is a subset of
+    /// `boundaryContainerTags` — tags such as `article` and `main` are
+    /// recursed into but never deleted as empty husks.
+    private static let removableWrapperTags: Set<String> = [
+        "div", "section", "aside", "header", "footer"
+    ]
+
+    /// Trims non-content residue from the leading and trailing boundaries
+    /// of the extracted article. This pass runs after all other cleanup
+    /// stages because residue often appears only once surrounding content
+    /// blocks (ads, nav, subscribe) have been removed.
+    ///
+    /// The pass only touches the article edges and stops as soon as it
+    /// encounters meaningful content. Internal separators are preserved.
+    func trimBoundaryNonContent(_ root: Element) throws {
+        var changed = true
+        while changed {
+            changed = false
+            if try trimLeadingBoundary(from: root) { changed = true }
+            if try trimTrailingBoundary(from: root) { changed = true }
+        }
+    }
+
+    /// Trims removable residue nodes from the start of `element`'s children.
+    private func trimLeadingBoundary(from element: Element) throws -> Bool {
+        var removed = false
+        while let first = element.getChildNodes().first {
+            if let wrapper = first as? Element,
+               Self.boundaryContainerTags.contains(wrapper.tagName().lowercased()) {
+                // Only recurse in the leading direction — wrapper is at the
+                // parent's leading edge, so only its own leading edge is a
+                // continuation of the article boundary.
+                if try trimLeadingBoundary(from: wrapper) { removed = true }
+                if try isWrapperOnlyResidue(wrapper) {
+                    try wrapper.remove()
+                    removed = true
+                    continue
+                }
+                break
+            }
+            if try removeIfDirectResidue(first) {
+                removed = true
+                continue
+            }
+            break
+        }
+        return removed
+    }
+
+    /// Trims removable residue nodes from the end of `element`'s children.
+    private func trimTrailingBoundary(from element: Element) throws -> Bool {
+        var removed = false
+        while let last = element.getChildNodes().last {
+            if let wrapper = last as? Element,
+               Self.boundaryContainerTags.contains(wrapper.tagName().lowercased()) {
+                // Only recurse in the trailing direction — wrapper is at the
+                // parent's trailing edge, so only its own trailing edge is a
+                // continuation of the article boundary.
+                if try trimTrailingBoundary(from: wrapper) { removed = true }
+                if try isWrapperOnlyResidue(wrapper) {
+                    try wrapper.remove()
+                    removed = true
+                    continue
+                }
+                break
+            }
+            if try removeIfDirectResidue(last) {
+                removed = true
+                continue
+            }
+            break
+        }
+        return removed
+    }
+
+    /// Returns `true` when a node is directly removable boundary residue
+    /// (whitespace text, comments, `<hr>`, `<br>`, or empty `<p>`/headings).
+    private func isDirectResidue(_ node: Node) -> Bool {
+        switch node {
+        case let textNode as TextNode:
+            return textNode.getWholeText()
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case _ as Comment:
+            return true
+        case let element as Element:
+            let tag = element.tagName().lowercased()
+            switch tag {
+            case "hr", "br":
+                return true
+            case "p", "h1", "h2", "h3", "h4", "h5", "h6":
+                return !hasMeaningfulBoundaryContent(element)
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+
+    private func removeIfDirectResidue(_ node: Node) throws -> Bool {
+        guard isDirectResidue(node) else { return false }
+        try node.remove()
+        return true
+    }
+
+    /// Returns `true` when a structural wrapper element contains only
+    /// boundary-residue descendants and can be removed.
+    private func isWrapperOnlyResidue(_ wrapper: Element) throws -> Bool {
+        guard Self.removableWrapperTags.contains(wrapper.tagName().lowercased()) else {
+            return false
+        }
+        let children = wrapper.getChildNodes()
+        return try children.allSatisfy { try isNodeBoundaryResidue($0) }
+    }
+
+    /// Returns `true` when a node (at any depth) is boundary residue.
+    /// Structural wrappers recurse into children; content tags return false.
+    private func isNodeBoundaryResidue(_ node: Node) throws -> Bool {
+        switch node {
+        case let textNode as TextNode:
+            return textNode.getWholeText()
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case _ as Comment:
+            return true
+        case let element as Element:
+            let tag = element.tagName().lowercased()
+            if Self.meaningfulContentTags.contains(tag) { return false }
+            if Self.boundaryContainerTags.contains(tag) {
+                return try element.getChildNodes().allSatisfy { try isNodeBoundaryResidue($0) }
+            }
+            return !hasMeaningfulBoundaryContent(element)
+        default:
+            return false
+        }
+    }
+
+    /// Returns `true` when an element contains meaningful article content
+    /// that should stop boundary trimming. Content-bearing tags are always
+    /// meaningful; text-bearing elements are checked recursively.
+    private func hasMeaningfulBoundaryContent(_ element: Element) -> Bool {
+        let tag = element.tagName().lowercased()
+        if Self.meaningfulContentTags.contains(tag) { return true }
+        return element.getChildNodes().contains { node in
+            switch node {
+            case let textNode as TextNode:
+                return !textNode.getWholeText()
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case let child as Element:
+                return hasMeaningfulBoundaryContent(child)
+            default:
+                return false
             }
         }
     }

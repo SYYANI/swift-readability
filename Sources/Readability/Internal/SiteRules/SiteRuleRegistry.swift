@@ -168,7 +168,8 @@ enum SiteRuleRegistry {
             FirefoxNightlyContainerCandidatePromotionRule.self,
             CityLabArticleContainerCandidateRule.self,
             XeiasoArticleRule.self,
-            SimonWillisonBeatCandidatePromotionRule.self
+            SimonWillisonBeatCandidatePromotionRule.self,
+            DevBlogsArticleCandidateRule.self
         ]
         for rule in rules {
             if let promoted = rule.promotedCandidate(from: candidate) {
@@ -256,6 +257,7 @@ enum SiteRuleRegistry {
                 SubstackDiscussionFooterRule.self,
                 MozillaCustomizeSyncSectionRule.self,
                 EHowAuthorProfileRule.self,
+                FabienSanglardLeadingChromeRule.self,
                 SimplyFoundMediaContainerRule.self,
                 FolhaGalleryWidgetRule.self,
                 PixnetArticleKeywordRule.self,
@@ -293,6 +295,7 @@ enum SiteRuleRegistry {
                 JohnDCookRelatedPostsRule.self,
                 MercurialExampleSectionRule.self,
                 SimonWillisonRecentArticlesRule.self,
+                TomRennerTagListRule.self,
                 WikipediaHermitianListPruneRule.self,
                 EbbPreviousLinkRule.self,
                 XkcdComicChromeCleanupRule.self
@@ -309,7 +312,9 @@ enum SiteRuleRegistry {
         let rules: [SiblingInclusionSiteRule.Type] = [
             XkcdFooterSiblingRule.self,
             WordPressFeaturedImageRule.self,
-            SeanGoedeckePostFooterRule.self
+            SeanGoedeckePostFooterRule.self,
+            GhostArticleChromeRule.self,
+            DevBlogsPostFooterRule.self
         ]
         for rule in rules {
             if let decision = try rule.shouldIncludeSibling(sibling, topCandidate: topCandidate) {
