@@ -257,6 +257,8 @@ enum SiteRuleRegistry {
                 MozillaCustomizeSyncSectionRule.self,
                 EHowAuthorProfileRule.self,
                 FabienSanglardLeadingChromeRule.self,
+                SimonWillisonMobileDateEyebrowRule.self,
+                SimonWillisonSponsoredBannerRule.self,
                 SimplyFoundMediaContainerRule.self,
                 FolhaGalleryWidgetRule.self,
                 PixnetArticleKeywordRule.self,
