@@ -259,7 +259,7 @@ enum MksiteLeadingPublicationRule: ArticleCleanerSiteRule {
         guard !links.isEmpty() else { return false }
         let text = (try? element.text())?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let linkText = try links.array().compactMap { try? $0.text() }
+        let linkText = links.array().compactMap { try? $0.text() }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // The wrapper's visible text should be dominated by link text
